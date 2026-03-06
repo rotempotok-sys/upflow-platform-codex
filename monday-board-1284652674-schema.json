@@ -1,0 +1,1045 @@
+﻿{
+    "boardId":  "1284652674",
+    "boardName":  "××§××××ª ×¤×¢××××",
+    "columns":  [
+                    {
+                        "id":  "____",
+                        "title":  "××××¨",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "_____",
+                        "title":  "×××¤×× ××§×× ×¨××©×",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "_________",
+                        "title":  "×¨×××× ××××ª ××××©×",
+                        "type":  "status"
+                    },
+                    {
+                        "id":  "__________",
+                        "title":  "×©× ××§×× ×¨××©×",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "_____________",
+                        "title":  "×¡×× ××ª×§×",
+                        "type":  "status"
+                    },
+                    {
+                        "id":  "______________",
+                        "title":  "×©× ××¢×¡×§/ ×××©××",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "boolean_mkpkaaz2",
+                        "title":  "×§×××¦×",
+                        "type":  "checkbox"
+                    },
+                    {
+                        "id":  "boolean_mkzk6383",
+                        "title":  "×§×××× ×¤×¨×××§×× ××¢××××",
+                        "type":  "checkbox"
+                    },
+                    {
+                        "id":  "color__1",
+                        "title":  "×¡××××¡ ××ª×§×",
+                        "type":  "status"
+                    },
+                    {
+                        "id":  "date1__1",
+                        "title":  "×ª××¨×× ××¤×¢××ª ×××ª×§×",
+                        "type":  "date"
+                    },
+                    {
+                        "id":  "email",
+                        "title":  "×××× ×× ×\"×",
+                        "type":  "email"
+                    },
+                    {
+                        "id":  "email7",
+                        "title":  "×××× ××§××",
+                        "type":  "email"
+                    },
+                    {
+                        "id":  "file",
+                        "title":  "××××× ××ª××××",
+                        "type":  "file"
+                    },
+                    {
+                        "id":  "files3__1",
+                        "title":  "×××× ×©××¨××ª ××× ××××¨××",
+                        "type":  "file"
+                    },
+                    {
+                        "id":  "files8__1",
+                        "title":  "××¨×××× ××¡××××",
+                        "type":  "file"
+                    },
+                    {
+                        "id":  "link6__1",
+                        "title":  "×§××©××¨ ×××¨×× ××××¢",
+                        "type":  "link"
+                    },
+                    {
+                        "id":  "name",
+                        "title":  "Name",
+                        "type":  "name"
+                    },
+                    {
+                        "id":  "numbers__1",
+                        "title":  "×©× ×ª×",
+                        "type":  "numbers"
+                    },
+                    {
+                        "id":  "pulse_log_mkptz9yb",
+                        "title":  "Creation log",
+                        "type":  "creation_log"
+                    },
+                    {
+                        "id":  "status",
+                        "title":  "×¡×× ×××× ×©××¨××ª",
+                        "type":  "status"
+                    },
+                    {
+                        "id":  "subitems",
+                        "title":  "Subitems",
+                        "type":  "subtasks"
+                    },
+                    {
+                        "id":  "text",
+                        "title":  "×©× ×¢× ×××©××× ××ª",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text_mkn2b4az",
+                        "title":  "×ª××¨×× ×ª×©×××",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text_mkna2fph",
+                        "title":  "××©××",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text_mkph4raq",
+                        "title":  "×××© ×§×©×¨ ××× ×",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text_mkphsx9m",
+                        "title":  "×××¤×× ××× ×",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text1",
+                        "title":  "×©× ××©××× ××× ×§",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text2",
+                        "title":  "×××¤×× ×× ×\"×",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text2__1",
+                        "title":  "×ª× ×× ×ª×©×××",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text4",
+                        "title":  "×©× ×× ×\"×",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "text6",
+                        "title":  "×.×¤.",
+                        "type":  "text"
+                    },
+                    {
+                        "id":  "timeline",
+                        "title":  "×ª×§××¤×ª ×××× ××©××¨××ª",
+                        "type":  "timeline"
+                    },
+                    {
+                        "id":  "timeline2",
+                        "title":  "×ª×§××¤×ª ×©× ×ª ××××§",
+                        "type":  "timeline"
+                    }
+                ],
+    "groups":  [
+                   {
+                       "id":  "new_group73750",
+                       "title":  "××§××××ª ×¤×¢×××× ××××××ª ×©××¨××ª"
+                   },
+                   {
+                       "id":  "group_mktpdec4",
+                       "title":  "××ª×§× ×× ×××§××/××¨×¦× ××¤× × ×× ××¡× ××××××ª ×©××¨××ª"
+                   },
+                   {
+                       "id":  "group_mkzssjeh",
+                       "title":  "×ª×××× ××ª×××"
+                   },
+                   {
+                       "id":  "group_mkq1qre6",
+                       "title":  "××§××××ª ×¤×¢×××× ××× ×××××ª  ×©××¨××ª"
+                   },
+                   {
+                       "id":  "new_group__1",
+                       "title":  "××§××××ª ××××× ××"
+                   }
+               ],
+    "sampleItems":  [
+                        {
+                            "id":  "1304821230",
+                            "name":  "×××¨××",
+                            "group":  {
+                                          "id":  "new_group73750",
+                                          "title":  "××§××××ª ×¤×¢×××× ××××××ª ×©××¨××ª"
+                                      },
+                            "column_values":  [
+                                                  {
+                                                      "id":  "subitems",
+                                                      "type":  "subtasks",
+                                                      "text":  null
+                                                  },
+                                                  {
+                                                      "id":  "______________",
+                                                      "type":  "text",
+                                                      "text":  "×××¨××"
+                                                  },
+                                                  {
+                                                      "id":  "pulse_log_mkptz9yb",
+                                                      "type":  "creation_log",
+                                                      "text":  "2023-10-29 15:57:23 UTC"
+                                                  },
+                                                  {
+                                                      "id":  "timeline",
+                                                      "type":  "timeline",
+                                                      "text":  "2025-05-22 - 2026-05-21"
+                                                  },
+                                                  {
+                                                      "id":  "file",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/53354419/doc02076020240618072853%20(1).pdf, https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/125956629/%D7%90%D7%99%D7%A9%D7%95%D7%A8%20%D7%97%D7%91%D7%99%D7%9C%D7%AA%20%D7%A9%D7%99%D7%A8%D7%95%D7%AA%20%D7%90%D7%95%D7%A8%D7%99%D7%9D.png, https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/125956627/%D7%97%D7%91%D7%99%D7%9C%D7%AA%20%D7%A9%D7%99%D7%A8%D7%95%D7%AA%20%D7%A8%D7%A4%D7%AA%20%D7%90%D7%95%D7%A8%D7%99%D7%9D%2021.05.2025.pdf"
+                                                  },
+                                                  {
+                                                      "id":  "files8__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkpkaaz2",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkzk6383",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "__________",
+                                                      "type":  "text",
+                                                      "text":  "××× ×××× ×"
+                                                  },
+                                                  {
+                                                      "id":  "_____",
+                                                      "type":  "text",
+                                                      "text":  "0509764030"
+                                                  },
+                                                  {
+                                                      "id":  "email7",
+                                                      "type":  "email",
+                                                      "text":  "refet@kurim.org.il"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkph4raq",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkphsx9m",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text4",
+                                                      "type":  "text",
+                                                      "text":  "××× ×¦×¨×¤×ª×"
+                                                  },
+                                                  {
+                                                      "id":  "text2",
+                                                      "type":  "text",
+                                                      "text":  "0547776063"
+                                                  },
+                                                  {
+                                                      "id":  "email",
+                                                      "type":  "email",
+                                                      "text":  "tali_act@urim.org.il"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkn2b4az",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£30- 5"
+                                                  },
+                                                  {
+                                                      "id":  "text2__1",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ +30"
+                                                  },
+                                                  {
+                                                      "id":  "_____________",
+                                                      "type":  "status",
+                                                      "text":  "UASB"
+                                                  },
+                                                  {
+                                                      "id":  "color__1",
+                                                      "type":  "status",
+                                                      "text":  "×¤×¢××"
+                                                  },
+                                                  {
+                                                      "id":  "status",
+                                                      "type":  "status",
+                                                      "text":  "×× ××××©×"
+                                                  },
+                                                  {
+                                                      "id":  "timeline2",
+                                                      "type":  "timeline",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "files3__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text6",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text1",
+                                                      "type":  "text",
+                                                      "text":  "×¨×¤×ª ×××¨××"
+                                                  },
+                                                  {
+                                                      "id":  "____",
+                                                      "type":  "text",
+                                                      "text":  "×©×¢×¨ ×× ××"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkna2fph",
+                                                      "type":  "text",
+                                                      "text":  "×××¨××"
+                                                  },
+                                                  {
+                                                      "id":  "link6__1",
+                                                      "type":  "link",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "date1__1",
+                                                      "type":  "date",
+                                                      "text":  "2025-01-01"
+                                                  },
+                                                  {
+                                                      "id":  "_________",
+                                                      "type":  "status",
+                                                      "text":  "××× ××××¢"
+                                                  },
+                                                  {
+                                                      "id":  "numbers__1",
+                                                      "type":  "numbers",
+                                                      "text":  "14400"
+                                                  }
+                                              ]
+                        },
+                        {
+                            "id":  "1304821237",
+                            "name":  "×××××ª ××©××¨",
+                            "group":  {
+                                          "id":  "new_group73750",
+                                          "title":  "××§××××ª ×¤×¢×××× ××××××ª ×©××¨××ª"
+                                      },
+                            "column_values":  [
+                                                  {
+                                                      "id":  "subitems",
+                                                      "type":  "subtasks",
+                                                      "text":  null
+                                                  },
+                                                  {
+                                                      "id":  "______________",
+                                                      "type":  "text",
+                                                      "text":  "××××ª ××©××¨"
+                                                  },
+                                                  {
+                                                      "id":  "pulse_log_mkptz9yb",
+                                                      "type":  "creation_log",
+                                                      "text":  "2023-10-29 15:57:24 UTC"
+                                                  },
+                                                  {
+                                                      "id":  "timeline",
+                                                      "type":  "timeline",
+                                                      "text":  "2025-02-03 - 2026-02-01"
+                                                  },
+                                                  {
+                                                      "id":  "file",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/98065461/%D7%97%D7%91%D7%99%D7%9C%D7%AA%20%D7%A9%D7%99%D7%A8%D7%95%D7%AA%20%D7%A8%D7%A4%D7%AA%20%D7%90%D7%99%D7%99%D7%9C%D7%AA%20%D7%94%D7%A9%D7%97%D7%A8%2003.02.2025%20(1).pdf, https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/98074563/image.png, https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/98677649/%D7%90%D7%99%D7%A9%D7%95%D7%A8%20%D7%97%D7%91%D7%99%D7%9C%D7%AA%D7%A9%D7%99%D7%A8%D7%95%D7%AA%202025.pdf"
+                                                  },
+                                                  {
+                                                      "id":  "files8__1",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/98074925/%D7%94%D7%A1%D7%9B%D7%9D%20%D7%A9%D7%99%D7%A8%D7%95%D7%AA%20upflow%20(2).pdf"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkpkaaz2",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkzk6383",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "__________",
+                                                      "type":  "text",
+                                                      "text":  "×©××× ××××¨"
+                                                  },
+                                                  {
+                                                      "id":  "_____",
+                                                      "type":  "text",
+                                                      "text":  "0523668827"
+                                                  },
+                                                  {
+                                                      "id":  "email7",
+                                                      "type":  "email",
+                                                      "text":  "refet_ay@ayelet.org.il"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkph4raq",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkphsx9m",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text4",
+                                                      "type":  "text",
+                                                      "text":  "×××¨"
+                                                  },
+                                                  {
+                                                      "id":  "text2",
+                                                      "type":  "text",
+                                                      "text":  "046932218"
+                                                  },
+                                                  {
+                                                      "id":  "email",
+                                                      "type":  "email",
+                                                      "text":  "mor@ayelet.org.il - sigi@ayelet.org.il"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkn2b4az",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ 60- ×¡××£"
+                                                  },
+                                                  {
+                                                      "id":  "text2__1",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ + 60"
+                                                  },
+                                                  {
+                                                      "id":  "_____________",
+                                                      "type":  "status",
+                                                      "text":  "UASB"
+                                                  },
+                                                  {
+                                                      "id":  "color__1",
+                                                      "type":  "status",
+                                                      "text":  "×¤×¢××"
+                                                  },
+                                                  {
+                                                      "id":  "status",
+                                                      "type":  "status",
+                                                      "text":  "××××©×"
+                                                  },
+                                                  {
+                                                      "id":  "timeline2",
+                                                      "type":  "timeline",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "files3__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text",
+                                                      "type":  "text",
+                                                      "text":  "×§××××¥ ×××××ª ××©××¨ (×¨×¤×ª) 046932218"
+                                                  },
+                                                  {
+                                                      "id":  "text6",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text1",
+                                                      "type":  "text",
+                                                      "text":  "×§××××¥ ×××××ª-×"
+                                                  },
+                                                  {
+                                                      "id":  "____",
+                                                      "type":  "text",
+                                                      "text":  "×¦×¤×× ×¨×××§"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkna2fph",
+                                                      "type":  "text",
+                                                      "text":  "×××××ª ××©××¨"
+                                                  },
+                                                  {
+                                                      "id":  "link6__1",
+                                                      "type":  "link",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "date1__1",
+                                                      "type":  "date",
+                                                      "text":  "2025-01-01"
+                                                  },
+                                                  {
+                                                      "id":  "_________",
+                                                      "type":  "status",
+                                                      "text":  "××× ××××¢"
+                                                  },
+                                                  {
+                                                      "id":  "numbers__1",
+                                                      "type":  "numbers",
+                                                      "text":  "24000"
+                                                  }
+                                              ]
+                        },
+                        {
+                            "id":  "1304821243",
+                            "name":  "×¤××¨×ª ×××¡×£ ×××¨×× - ×××××",
+                            "group":  {
+                                          "id":  "new_group73750",
+                                          "title":  "××§××××ª ×¤×¢×××× ××××××ª ×©××¨××ª"
+                                      },
+                            "column_values":  [
+                                                  {
+                                                      "id":  "subitems",
+                                                      "type":  "subtasks",
+                                                      "text":  null
+                                                  },
+                                                  {
+                                                      "id":  "______________",
+                                                      "type":  "text",
+                                                      "text":  "××××"
+                                                  },
+                                                  {
+                                                      "id":  "pulse_log_mkptz9yb",
+                                                      "type":  "creation_log",
+                                                      "text":  "2023-10-29 15:57:24 UTC"
+                                                  },
+                                                  {
+                                                      "id":  "timeline",
+                                                      "type":  "timeline",
+                                                      "text":  "2024-12-24 - 2026-12-23"
+                                                  },
+                                                  {
+                                                      "id":  "file",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/87960329/WhatsApp%20Image%202024-12-24%20at%2017.54.23.jpeg, https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/87960390/%D7%97%D7%91%D7%99%D7%9C%D7%AA%20%D7%A9%D7%99%D7%A8%D7%95%D7%AA%20%D7%99%D7%95%D7%A1%D7%A3%20%D7%A4%D7%95%D7%A8%D7%AA%20%D7%93%D7%95%20%D7%97%D7%95%D7%93%D7%A9%D7%99%D7%AA.pdf"
+                                                  },
+                                                  {
+                                                      "id":  "files8__1",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/87960296/%D7%97%D7%95%D7%96%D7%94%20%D7%A9%D7%99%D7%A8%D7%95%D7%AA%20%D7%9C%D7%A8%D7%A4%D7%AA%20%D7%94%D7%9E%D7%95%D7%A9%D7%91%D7%99%D7%AA%20-%20%D7%99%D7%95%D7%A1%D7%A3%20%D7%A4%D7%95%D7%A8%D7%AA%20%D7%91%D7%99%D7%98%D7%97%D7%94%2006.03.2023%20upflow%20(1).pdf"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkpkaaz2",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkzk6383",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "__________",
+                                                      "type":  "text",
+                                                      "text":  "×¤××¨×ª ×××¡×£"
+                                                  },
+                                                  {
+                                                      "id":  "_____",
+                                                      "type":  "text",
+                                                      "text":  "050-7228633"
+                                                  },
+                                                  {
+                                                      "id":  "email7",
+                                                      "type":  "email",
+                                                      "text":  "poratyy@walla.com"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkph4raq",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkphsx9m",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text4",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text2",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "email",
+                                                      "type":  "email",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkn2b4az",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text2__1",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "_____________",
+                                                      "type":  "status",
+                                                      "text":  "UFT sieve basic"
+                                                  },
+                                                  {
+                                                      "id":  "color__1",
+                                                      "type":  "status",
+                                                      "text":  "×¤×¢××"
+                                                  },
+                                                  {
+                                                      "id":  "status",
+                                                      "type":  "status",
+                                                      "text":  "×× ××××©×"
+                                                  },
+                                                  {
+                                                      "id":  "timeline2",
+                                                      "type":  "timeline",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "files3__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text6",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text1",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "____",
+                                                      "type":  "text",
+                                                      "text":  "××¨××××"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkna2fph",
+                                                      "type":  "text",
+                                                      "text":  "×××××"
+                                                  },
+                                                  {
+                                                      "id":  "link6__1",
+                                                      "type":  "link",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "date1__1",
+                                                      "type":  "date",
+                                                      "text":  "2021-10-20"
+                                                  },
+                                                  {
+                                                      "id":  "_________",
+                                                      "type":  "status",
+                                                      "text":  "××× ××××¢"
+                                                  },
+                                                  {
+                                                      "id":  "numbers__1",
+                                                      "type":  "numbers",
+                                                      "text":  "8496"
+                                                  }
+                                              ]
+                        },
+                        {
+                            "id":  "1304823384",
+                            "name":  "××\"×© ××××××ª (×× ××)",
+                            "group":  {
+                                          "id":  "new_group73750",
+                                          "title":  "××§××××ª ×¤×¢×××× ××××××ª ×©××¨××ª"
+                                      },
+                            "column_values":  [
+                                                  {
+                                                      "id":  "subitems",
+                                                      "type":  "subtasks",
+                                                      "text":  null
+                                                  },
+                                                  {
+                                                      "id":  "______________",
+                                                      "type":  "text",
+                                                      "text":  "××\"×© ××××××ª"
+                                                  },
+                                                  {
+                                                      "id":  "pulse_log_mkptz9yb",
+                                                      "type":  "creation_log",
+                                                      "text":  "2023-10-29 16:08:42 UTC"
+                                                  },
+                                                  {
+                                                      "id":  "timeline",
+                                                      "type":  "timeline",
+                                                      "text":  "2024-06-02 - 2026-06-30"
+                                                  },
+                                                  {
+                                                      "id":  "file",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/22827719/%D7%90%D7%99%D7%A9%D7%95%D7%A8%20%D7%91%D7%99%D7%A6%D7%95%D7%A2%20%D7%A4%D7%A8%D7%95%D7%99%D7%A7%D7%98%20%D7%A9%D7%93%D7%A8%D7%95%D7%92%20%D7%9E%D7%AA%D7%A9.pdf"
+                                                  },
+                                                  {
+                                                      "id":  "files8__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkpkaaz2",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkzk6383",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "__________",
+                                                      "type":  "text",
+                                                      "text":  "××©× ××××©××××¥"
+                                                  },
+                                                  {
+                                                      "id":  "_____",
+                                                      "type":  "text",
+                                                      "text":  "+972 54-791-5895"
+                                                  },
+                                                  {
+                                                      "id":  "email7",
+                                                      "type":  "email",
+                                                      "text":  "moshe.mov@gmail.com"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkph4raq",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkphsx9m",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text4",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text2",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "email",
+                                                      "type":  "email",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkn2b4az",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ 30 - 15"
+                                                  },
+                                                  {
+                                                      "id":  "text2__1",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ +30"
+                                                  },
+                                                  {
+                                                      "id":  "_____________",
+                                                      "type":  "status",
+                                                      "text":  "×××© ××× ××¦××¤××"
+                                                  },
+                                                  {
+                                                      "id":  "color__1",
+                                                      "type":  "status",
+                                                      "text":  "×¤×¢××"
+                                                  },
+                                                  {
+                                                      "id":  "status",
+                                                      "type":  "status",
+                                                      "text":  "××××©×"
+                                                  },
+                                                  {
+                                                      "id":  "timeline2",
+                                                      "type":  "timeline",
+                                                      "text":  "2024-02-26 - 2025-02-27"
+                                                  },
+                                                  {
+                                                      "id":  "files3__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text6",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text1",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "____",
+                                                      "type":  "text",
+                                                      "text":  "××©×××"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkna2fph",
+                                                      "type":  "text",
+                                                      "text":  "×§××××¥ ××××××ª"
+                                                  },
+                                                  {
+                                                      "id":  "link6__1",
+                                                      "type":  "link",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "date1__1",
+                                                      "type":  "date",
+                                                      "text":  "2024-03-11"
+                                                  },
+                                                  {
+                                                      "id":  "_________",
+                                                      "type":  "status",
+                                                      "text":  "××× ××××¢"
+                                                  },
+                                                  {
+                                                      "id":  "numbers__1",
+                                                      "type":  "numbers",
+                                                      "text":  "14400"
+                                                  }
+                                              ]
+                        },
+                        {
+                            "id":  "1304824363",
+                            "name":  "×× ××",
+                            "group":  {
+                                          "id":  "new_group73750",
+                                          "title":  "××§××××ª ×¤×¢×××× ××××××ª ×©××¨××ª"
+                                      },
+                            "column_values":  [
+                                                  {
+                                                      "id":  "subitems",
+                                                      "type":  "subtasks",
+                                                      "text":  null
+                                                  },
+                                                  {
+                                                      "id":  "______________",
+                                                      "type":  "text",
+                                                      "text":  "×¨×¤×ª ×× ××"
+                                                  },
+                                                  {
+                                                      "id":  "pulse_log_mkptz9yb",
+                                                      "type":  "creation_log",
+                                                      "text":  "2023-10-29 16:14:29 UTC"
+                                                  },
+                                                  {
+                                                      "id":  "timeline",
+                                                      "type":  "timeline",
+                                                      "text":  "2024-08-27 - 2026-08-31"
+                                                  },
+                                                  {
+                                                      "id":  "file",
+                                                      "type":  "file",
+                                                      "text":  "https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/49974205/%D7%94%D7%A6%D7%A2%D7%94%20%D7%9C%D7%98%D7%99%D7%A4%D7%95%D7%9C%20%D7%91%D7%A9%D7%A4%D7%9B%D7%99%20%D7%A8%D7%A4%D7%AA%20%D7%94%D7%A0%D7%92%D7%91%20%D7%A2%D7%9C%20%D7%99%D7%93%D7%99%20%D7%9E%D7%AA%D7%A7%D7%9F%20UFT%20micron.pdf, https://upflow-360-wastewater-solution.monday.com/protected_static/18650740/resources/64020545/CamScanner%202024-08-21%2011.17.pdf"
+                                                  },
+                                                  {
+                                                      "id":  "files8__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkpkaaz2",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "boolean_mkzk6383",
+                                                      "type":  "checkbox",
+                                                      "text":  "v"
+                                                  },
+                                                  {
+                                                      "id":  "__________",
+                                                      "type":  "text",
+                                                      "text":  "××©× ××××©××××¥"
+                                                  },
+                                                  {
+                                                      "id":  "_____",
+                                                      "type":  "text",
+                                                      "text":  "054-7915895"
+                                                  },
+                                                  {
+                                                      "id":  "email7",
+                                                      "type":  "email",
+                                                      "text":  "moshe.mov@gmail.com"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkph4raq",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkphsx9m",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text4",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text2",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "email",
+                                                      "type":  "email",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text_mkn2b4az",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ 30 - 15"
+                                                  },
+                                                  {
+                                                      "id":  "text2__1",
+                                                      "type":  "text",
+                                                      "text":  "×©×××£ +30"
+                                                  },
+                                                  {
+                                                      "id":  "_____________",
+                                                      "type":  "status",
+                                                      "text":  "UFT sieve basic"
+                                                  },
+                                                  {
+                                                      "id":  "color__1",
+                                                      "type":  "status",
+                                                      "text":  "×¤×¢××"
+                                                  },
+                                                  {
+                                                      "id":  "status",
+                                                      "type":  "status",
+                                                      "text":  "××××©×"
+                                                  },
+                                                  {
+                                                      "id":  "timeline2",
+                                                      "type":  "timeline",
+                                                      "text":  "2023-07-23 - 2024-07-22"
+                                                  },
+                                                  {
+                                                      "id":  "files3__1",
+                                                      "type":  "file",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text6",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "text1",
+                                                      "type":  "text",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "____",
+                                                      "type":  "text",
+                                                      "text":  "×©×¢×¨ ×× ××"
+                                                  },
+                                                  {
+                                                      "id":  "text_mkna2fph",
+                                                      "type":  "text",
+                                                      "text":  "×§××××ª ××××××ª"
+                                                  },
+                                                  {
+                                                      "id":  "link6__1",
+                                                      "type":  "link",
+                                                      "text":  ""
+                                                  },
+                                                  {
+                                                      "id":  "date1__1",
+                                                      "type":  "date",
+                                                      "text":  "2023-07-23"
+                                                  },
+                                                  {
+                                                      "id":  "_________",
+                                                      "type":  "status",
+                                                      "text":  "××× ××××¢"
+                                                  },
+                                                  {
+                                                      "id":  "numbers__1",
+                                                      "type":  "numbers",
+                                                      "text":  "14400"
+                                                  }
+                                              ]
+                        }
+                    ]
+}
