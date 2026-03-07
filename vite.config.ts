@@ -3,6 +3,10 @@ import type { IncomingMessage } from 'node:http'
 import path from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
+import { handleAuthRoutes } from './server/auth/routes'
+import { requireApprovedPermissions } from './server/auth/guards'
+import { handlePermissionsRoutes } from './server/auth/permissionsRoutes'
+import type { ApprovalStatus, PermissionKey, PlatformRole } from './server/auth/permissions'
 
 interface ChatRequestBody {
   userId?: string
@@ -35,6 +39,24 @@ interface ProxyEnv {
   mondayApiToken: string
   mondayClientsBoardId: string
   mondayEquipmentBoardId: string
+  mondayAuthBoardId: string
+  googleClientId: string
+  roleStatusMap: Partial<Record<string, PlatformRole>>
+  approvalStatusMap: Partial<Record<string, ApprovalStatus>>
+  authRoleColumnId: string
+  authApprovalColumnId: string
+  authEmailColumnId: string
+  authPhoneColumnId: string
+  authGoogleSubColumnId: string
+  authAssignedClientsColumnId: string
+  authAssignedFacilitiesColumnId: string
+  authToggleAssistantColumnId: string
+  authToggleCalendarColumnId: string
+  authToggleClientsColumnId: string
+  authToggleTeamColumnId: string
+  authToggleEquipmentColumnId: string
+  authToggleAiAskColumnId: string
+  isProduction: boolean
 }
 
 interface MondayColumnValue {
@@ -395,6 +417,41 @@ async function readJsonBody<T>(req: IncomingMessage): Promise<T> {
   }
 }
 
+function parseStatusMap<T extends string>(value: string): Partial<Record<string, T>> {
+  const trimmed = value.trim()
+  if (!trimmed) return {}
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>
+    const output: Partial<Record<string, T>> = {}
+
+    for (const [key, mapped] of Object.entries(parsed)) {
+      const normalizedKey = key.trim().toLowerCase().normalize('NFC')
+      if (!normalizedKey) continue
+      if (typeof mapped !== 'string' || !mapped.trim()) continue
+      output[normalizedKey] = mapped.trim() as T
+    }
+
+    return output
+  } catch {
+    return {}
+  }
+}
+function hasAnyPermission(keys: PermissionKey[], required: PermissionKey[]) {
+  return required.some((permission) => keys.includes(permission))
+}
+
+function filterByScope<T extends { id: string }>(items: T[], allowedIds: string[]) {
+  if (allowedIds.length === 0) return []
+  const allowed = new Set(allowedIds)
+  return items.filter((item) => allowed.has(String(item.id)))
+}
+
+function jsonError(res: any, statusCode: number, code: string, message: string, extra?: Record<string, unknown>) {
+  res.statusCode = statusCode
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.end(JSON.stringify({ error: { code, message, ...(extra ?? {}) } }))
+}
 function uniqueModels(models: string[]) {
   return Array.from(new Set(models.filter(Boolean)))
 }
@@ -724,12 +781,91 @@ async function requestOpenRouter(options: {
   }
 }
 
+function toGuardEnv(env: ProxyEnv) {
+  return {
+    isProduction: env.isProduction,
+    mondayApiToken: env.mondayApiToken,
+    mondayAuthBoardId: env.mondayAuthBoardId,
+    roleColumnId: env.authRoleColumnId,
+    approvalColumnId: env.authApprovalColumnId,
+    emailColumnId: env.authEmailColumnId,
+    phoneColumnId: env.authPhoneColumnId,
+    googleSubColumnId: env.authGoogleSubColumnId,
+    assignedClientsColumnId: env.authAssignedClientsColumnId,
+    assignedFacilitiesColumnId: env.authAssignedFacilitiesColumnId,
+    toggleAssistantColumnId: env.authToggleAssistantColumnId,
+    toggleCalendarColumnId: env.authToggleCalendarColumnId,
+    toggleClientsColumnId: env.authToggleClientsColumnId,
+    toggleTeamColumnId: env.authToggleTeamColumnId,
+    toggleEquipmentColumnId: env.authToggleEquipmentColumnId,
+    toggleAiAskColumnId: env.authToggleAiAskColumnId,
+    roleStatusMap: env.roleStatusMap,
+    approvalStatusMap: env.approvalStatusMap,
+  }
+}
 function attachApiMiddleware(
   middlewares: { use: (handler: (req: IncomingMessage, res: any, next: () => void) => void) => void },
   env: ProxyEnv,
 ) {
   middlewares.use(async (req, res, next) => {
+    const authHandled = await handleAuthRoutes(req, res, {
+      googleClientId: env.googleClientId,
+      isProduction: env.isProduction,
+      mondayApiToken: env.mondayApiToken,
+      mondayAuthBoardId: env.mondayAuthBoardId,
+      roleColumnId: env.authRoleColumnId,
+      approvalColumnId: env.authApprovalColumnId,
+      emailColumnId: env.authEmailColumnId,
+      phoneColumnId: env.authPhoneColumnId,
+      googleSubColumnId: env.authGoogleSubColumnId,
+      assignedClientsColumnId: env.authAssignedClientsColumnId,
+      assignedFacilitiesColumnId: env.authAssignedFacilitiesColumnId,
+      toggleAssistantColumnId: env.authToggleAssistantColumnId,
+      toggleCalendarColumnId: env.authToggleCalendarColumnId,
+      toggleClientsColumnId: env.authToggleClientsColumnId,
+      toggleTeamColumnId: env.authToggleTeamColumnId,
+      toggleEquipmentColumnId: env.authToggleEquipmentColumnId,
+      toggleAiAskColumnId: env.authToggleAiAskColumnId,
+      roleStatusMap: env.roleStatusMap,
+      approvalStatusMap: env.approvalStatusMap,
+    })
+
+    if (authHandled || res.writableEnded) return
+
+    const permissionsHandled = await handlePermissionsRoutes(req, res, {
+      ...toGuardEnv(env),
+      mondayClientsBoardId: env.mondayClientsBoardId,
+      mondayEquipmentBoardId: env.mondayEquipmentBoardId,
+    })
+
+    if (permissionsHandled || res.writableEnded) return
     if (req.url === '/api/monday/snapshot' && req.method === 'GET') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: [],
+      })
+      if (!guard) return
+
+      const snapshotPermissions: PermissionKey[] = ['screen.assistant', 'screen.clients', 'screen.equipment']
+      if (!hasAnyPermission(guard.user.permissions.keys, snapshotPermissions)) {
+        jsonError(res, 403, 'AUTH_PERMISSION_DENIED', 'Missing snapshot access permissions', {
+          requiredAnyOf: snapshotPermissions,
+        })
+        return
+      }
+
+      if (guard.user.scope.scopedRole && !guard.user.scope.scopeConfigured) {
+        jsonError(
+          res,
+          403,
+          'AUTH_SCOPE_CONFIG_MISSING',
+          guard.user.scope.scopeConfigMissingReason ??
+            'Scoped access is not configured (TODO configure assignment column IDs)',
+        )
+        return
+      }
       if (!env.mondayApiToken) {
         res.statusCode = 500
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -741,8 +877,13 @@ function attachApiMiddleware(
         const clientsBoard = await fetchBoard(env.mondayApiToken, env.mondayClientsBoardId)
         const equipmentBoard = await fetchBoard(env.mondayApiToken, env.mondayEquipmentBoardId)
 
-        const clients = normalizeClientsBoard(clientsBoard)
-        const facilities = normalizeEquipmentBoard(equipmentBoard)
+        let clients = normalizeClientsBoard(clientsBoard)
+        let facilities = normalizeEquipmentBoard(equipmentBoard)
+
+        if (guard.user.scope.scopedRole) {
+          clients = filterByScope(clients, guard.user.scope.clientIds)
+          facilities = filterByScope(facilities, guard.user.scope.facilityIds)
+        }
 
         res.statusCode = 200
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -763,6 +904,13 @@ function attachApiMiddleware(
     }
 
     if (req.url === '/api/ai/memory' && req.method === 'POST') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: ['screen.assistant', 'ai.ask'],
+      })
+      if (!guard) return
       try {
         const body = await readJsonBody<MemoryRequestBody>(req)
         const userId = sanitizeUserId(body.userId)
@@ -797,6 +945,13 @@ function attachApiMiddleware(
     }
 
     if (req.url === '/api/ai/chat' && req.method === 'POST') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: ['screen.assistant', 'ai.ask'],
+      })
+      if (!guard) return
       if (!env.openRouterApiKey) {
         res.statusCode = 500
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -921,6 +1076,24 @@ export default defineConfig(({ mode }) => {
     mondayApiToken: loaded.MONDAY_API_TOKEN || '',
     mondayClientsBoardId: loaded.MONDAY_ACTIVE_CLIENTS_BOARD_ID || '1284652674',
     mondayEquipmentBoardId: loaded.MONDAY_EQUIPMENT_BOARD_ID || '2119399147',
+    mondayAuthBoardId: loaded.MONDAY_AUTH_BOARD_ID || '1729562303',
+    googleClientId: (loaded.GOOGLE_CLIENT_ID || loaded.VITE_GOOGLE_CLIENT_ID || '').trim(),
+    roleStatusMap: parseStatusMap<PlatformRole>(loaded.AUTH_ROLE_STATUS_MAP_JSON || ''),
+    approvalStatusMap: parseStatusMap<ApprovalStatus>(loaded.AUTH_APPROVAL_STATUS_MAP_JSON || ''),
+    authRoleColumnId: loaded.AUTH_ROLE_COLUMN_ID || 'color_mm16fjq9',
+    authApprovalColumnId: loaded.AUTH_APPROVAL_COLUMN_ID || 'color_mm167kpn',
+    authEmailColumnId: loaded.AUTH_EMAIL_COLUMN_ID || 'email',
+    authPhoneColumnId: loaded.AUTH_PHONE_COLUMN_ID || 'phone_mkn2my3a',
+    authGoogleSubColumnId: loaded.AUTH_GOOGLE_SUB_COLUMN_ID || '',
+    authAssignedClientsColumnId: loaded.AUTH_ASSIGNED_CLIENTS_COLUMN_ID || '',
+    authAssignedFacilitiesColumnId: loaded.AUTH_ASSIGNED_FACILITIES_COLUMN_ID || '',
+    authToggleAssistantColumnId: loaded.AUTH_TOGGLE_ASSISTANT_COLUMN_ID || '',
+    authToggleCalendarColumnId: loaded.AUTH_TOGGLE_CALENDAR_COLUMN_ID || '',
+    authToggleClientsColumnId: loaded.AUTH_TOGGLE_CLIENTS_COLUMN_ID || '',
+    authToggleTeamColumnId: loaded.AUTH_TOGGLE_TEAM_COLUMN_ID || '',
+    authToggleEquipmentColumnId: loaded.AUTH_TOGGLE_EQUIPMENT_COLUMN_ID || '',
+    authToggleAiAskColumnId: loaded.AUTH_TOGGLE_AI_ASK_COLUMN_ID || '',
+    isProduction: mode === 'production',
   }
 
   return {
@@ -938,6 +1111,31 @@ export default defineConfig(({ mode }) => {
     ],
   }
 })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

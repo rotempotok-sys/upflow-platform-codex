@@ -13,8 +13,34 @@ interface GoogleOAuth2 {
   revoke: (token: string, done?: () => void) => void
 }
 
+interface GoogleIdPromptResponse {
+  credential?: string
+}
+
+interface GoogleAccountsId {
+  initialize: (config: {
+    client_id: string
+    callback: (response: GoogleIdPromptResponse) => void
+    ux_mode?: 'popup' | 'redirect'
+    auto_select?: boolean
+  }) => void
+  renderButton: (
+    parent: HTMLElement,
+    options: {
+      type?: 'standard' | 'icon'
+      theme?: 'outline' | 'filled_blue' | 'filled_black'
+      size?: 'small' | 'medium' | 'large'
+      text?: string
+      shape?: 'rectangular' | 'pill' | 'circle' | 'square'
+      width?: number
+    },
+  ) => void
+  prompt: () => void
+}
+
 interface GoogleAccounts {
   oauth2: GoogleOAuth2
+  id: GoogleAccountsId
 }
 
 interface GoogleIdentity {

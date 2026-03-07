@@ -1,47 +1,73 @@
-﻿import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { BlockedScreen } from './features/auth/BlockedScreen'
+import { LoginScreen, type LoginOutcome } from './features/auth/LoginScreen'
+import { NotAuthorizedScreen } from './features/auth/NotAuthorizedScreen'
+import { PendingScreen } from './features/auth/PendingScreen'
 import { OperationsAIAgentPage } from './features/assistant/OperationsAIAgentPage'
 import { CalendarLinkPage } from './features/calendar/CalendarLinkPage'
 import { ClientsOverview } from './features/clients/ClientsOverview'
 import { EquipmentBoardPage } from './features/equipment/EquipmentBoardPage'
 import { TeamOverview } from './features/team/TeamOverview'
-import { clients as fallbackClients } from './data/clientsData'
-import { facilities as fallbackFacilities } from './data/facilitiesData'
 import type { Client, FacilityRecord } from './types/scheduling'
 
 type ViewKey = 'assistant' | 'team' | 'clients' | 'calendar' | 'equipment'
-
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error'
+type AppAuthState = 'booting' | 'unauthenticated' | 'approved' | 'pending' | 'blocked' | 'not_authorized' | 'error'
+
+type PermissionKey =
+  | 'screen.assistant'
+  | 'screen.team'
+  | 'screen.clients'
+  | 'screen.calendar'
+  | 'screen.equipment'
+  | 'screen.permissions'
+  | 'ai.ask'
 
 interface MondaySnapshotResponse {
   clients: Client[]
   facilities: FacilityRecord[]
   fetchedAt: string
+  error?: {
+    code?: string
+    message?: string
+    authState?: 'blocked' | 'not_authorized'
+  }
+}
+
+interface AuthUser {
+  email: string
+  displayName: string
+  phone: string
+  role: 'Admin' | 'Operations' | 'Technician' | 'Viewer'
+  approval: 'Approved' | 'Pending' | 'Blocked'
+}
+
+interface AuthMePayload {
+  authenticated?: boolean
+  authState?: 'approved' | 'pending'
+  user?: AuthUser
+  permissions?: {
+    keys?: PermissionKey[]
+  }
+  error?: {
+    code?: string
+    message?: string
+    authState?: 'blocked' | 'not_authorized'
+  }
 }
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000
+const AUTH_SHELL_MARKER = 'AUTH SHELL V2 ACTIVE - 2026-03-07T06:25:00Z'
 
-const viewMeta: Record<ViewKey, { title: string; tag: string }> = {
-  assistant: {
-    title: 'סוכן AI',
-    tag: 'AI Agent',
-  },
-  team: {
-    title: 'צוות וביצוע',
-    tag: 'Operations',
-  },
-  clients: {
-    title: 'לקוחות',
-    tag: 'Clients',
-  },
-  calendar: {
-    title: 'לוח זמנים',
-    tag: 'Calendar',
-  },
-  equipment: {
-    title: 'תיקי מתקן',
-    tag: 'Equipment',
-  },
+const viewMeta: Record<ViewKey, { title: string; tag: string; permission: PermissionKey }> = {
+  assistant: { title: 'סוכן AI', tag: 'AI Agent', permission: 'screen.assistant' },
+  team: { title: 'צוות וביצוע', tag: 'Operations', permission: 'screen.team' },
+  clients: { title: 'לקוחות', tag: 'Clients', permission: 'screen.clients' },
+  calendar: { title: 'לוח זמנים', tag: 'Calendar', permission: 'screen.calendar' },
+  equipment: { title: 'תיקי מתקן', tag: 'Equipment', permission: 'screen.equipment' },
 }
+
+const viewOrder: ViewKey[] = ['assistant', 'calendar', 'clients', 'team', 'equipment']
 
 function formatSyncTime(value: string | null) {
   if (!value) return 'טרם סונכרן'
@@ -50,15 +76,154 @@ function formatSyncTime(value: string | null) {
   return date.toLocaleString('he-IL')
 }
 
+function AuthShellMarker() {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 12,
+        left: 12,
+        zIndex: 9999,
+        background: '#fffbcc',
+        color: '#111',
+        border: '2px solid #111',
+        borderRadius: 8,
+        padding: '6px 10px',
+        fontWeight: 700,
+        fontSize: 12,
+      }}
+    >
+      {AUTH_SHELL_MARKER}
+    </div>
+  )
+}
+
 function App() {
+  const [authState, setAuthState] = useState<AppAuthState>('booting')
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null)
+  const [authPermissions, setAuthPermissions] = useState<PermissionKey[]>([])
+  const [authMessage, setAuthMessage] = useState<string | null>(null)
+
   const [activeView, setActiveView] = useState<ViewKey>('assistant')
-  const [clients, setClients] = useState<Client[]>(fallbackClients)
-  const [facilities, setFacilities] = useState<FacilityRecord[]>(fallbackFacilities)
+  const [clients, setClients] = useState<Client[]>([])
+  const [facilities, setFacilities] = useState<FacilityRecord[]>([])
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
 
+  const allowedViews = useMemo(() => {
+    return viewOrder.filter((view) => authPermissions.includes(viewMeta[view].permission))
+  }, [authPermissions])
+
   useEffect(() => {
+    if (authState !== 'approved') return
+    if (allowedViews.length === 0) return
+    if (allowedViews.includes(activeView)) return
+    setActiveView(allowedViews[0])
+  }, [authState, allowedViews, activeView])
+
+  const canUseSnapshot = useMemo(() => {
+    if (authState !== 'approved') return false
+    return ['screen.assistant', 'screen.clients', 'screen.equipment'].some((permission) =>
+      authPermissions.includes(permission as PermissionKey),
+    )
+  }, [authState, authPermissions])
+
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // ignore and continue local reset
+    }
+
+    setAuthState('unauthenticated')
+    setAuthUser(null)
+    setAuthPermissions([])
+    setAuthMessage(null)
+    setSyncState('idle')
+    setSyncError(null)
+    setClients([])
+    setFacilities([])
+  }
+
+  useEffect(() => {
+    let isMounted = true
+
+    const bootstrapAuth = async () => {
+      try {
+        console.log('BOOT /api/auth/me')
+        const response = await fetch('/api/auth/me', { method: 'GET', cache: 'no-store' })
+        const payload = (await response.json()) as AuthMePayload
+
+        console.log('auth state received', {
+          httpStatus: response.status,
+          authState: payload.authState ?? payload.error?.authState ?? null,
+          errorCode: payload.error?.code ?? null,
+        })
+
+        if (!isMounted) return
+
+        if (response.ok && payload.authState === 'approved' && payload.user) {
+          setAuthUser(payload.user)
+          setAuthPermissions(payload.permissions?.keys ?? [])
+          setAuthMessage(null)
+          setAuthState('approved')
+          return
+        }
+
+        if (response.ok && payload.authState === 'pending') {
+          setAuthUser(payload.user ?? null)
+          setAuthPermissions([])
+          setAuthMessage('החשבון ממתין לאישור')
+          setAuthState('pending')
+          return
+        }
+
+        const code = payload.error?.code
+        const message = payload.error?.message || 'Authentication check failed'
+        const errorState = payload.error?.authState
+
+        if (code === 'SESSION_MISSING_OR_EXPIRED') {
+          setAuthState('unauthenticated')
+          setAuthMessage(null)
+          return
+        }
+
+        if (code === 'AUTH_BLOCKED' || errorState === 'blocked') {
+          setAuthState('blocked')
+          setAuthMessage(message)
+          return
+        }
+
+        if (code === 'AUTH_NOT_ELIGIBLE' || errorState === 'not_authorized') {
+          setAuthState('not_authorized')
+          setAuthMessage(message)
+          return
+        }
+
+        setAuthState('error')
+        setAuthMessage(message)
+      } catch (error) {
+        if (!isMounted) return
+        setAuthState('error')
+        setAuthMessage(error instanceof Error ? error.message : 'Authentication bootstrap failed')
+      }
+    }
+
+    void bootstrapAuth()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!canUseSnapshot) {
+      setClients([])
+      setFacilities([])
+      return
+    }
+
     let isMounted = true
 
     const pullSnapshot = async () => {
@@ -72,22 +237,49 @@ function App() {
           cache: 'no-store',
         })
 
-        const payload = (await response.json()) as MondaySnapshotResponse & { error?: string }
+        const payload = (await response.json()) as MondaySnapshotResponse
+        console.log('snapshot counts received', {
+          httpStatus: response.status,
+          clients: Array.isArray(payload.clients) ? payload.clients.length : null,
+          facilities: Array.isArray(payload.facilities) ? payload.facilities.length : null,
+          errorCode: payload.error?.code ?? null,
+        })
 
         if (!response.ok) {
-          throw new Error(payload.error || 'Monday snapshot request failed')
+          const code = payload.error?.code
+          const message = payload.error?.message || 'Monday snapshot request failed'
+
+          if (code === 'AUTH_BLOCKED') {
+            setAuthState('blocked')
+            setAuthMessage(message)
+            setClients([])
+            setFacilities([])
+            return
+          }
+
+          if (code === 'AUTH_NOT_ELIGIBLE' || code === 'SESSION_MISSING_OR_EXPIRED') {
+            setAuthState(code === 'AUTH_NOT_ELIGIBLE' ? 'not_authorized' : 'unauthenticated')
+            setAuthMessage(message)
+            setClients([])
+            setFacilities([])
+            return
+          }
+
+          throw new Error(message)
         }
 
         if (!isMounted) return
 
-        setClients(Array.isArray(payload.clients) ? payload.clients : fallbackClients)
-        setFacilities(Array.isArray(payload.facilities) ? payload.facilities : fallbackFacilities)
+        setClients(Array.isArray(payload.clients) ? payload.clients : [])
+        setFacilities(Array.isArray(payload.facilities) ? payload.facilities : [])
         setLastSyncAt(payload.fetchedAt || new Date().toISOString())
         setSyncState('ok')
       } catch (error) {
         if (!isMounted) return
         setSyncState('error')
         setSyncError(error instanceof Error ? error.message : 'שגיאת סנכרון לא ידועה')
+        setClients([])
+        setFacilities([])
       }
     }
 
@@ -100,10 +292,116 @@ function App() {
       isMounted = false
       window.clearInterval(timer)
     }
-  }, [])
+  }, [canUseSnapshot])
+
+  const handleLoginOutcome = (outcome: LoginOutcome) => {
+    if (outcome.type === 'approved') {
+      window.location.reload()
+      return
+    }
+
+    if (outcome.type === 'pending') {
+      setAuthState('pending')
+      setAuthMessage('החשבון ממתין לאישור')
+      return
+    }
+
+    if (outcome.type === 'blocked') {
+      setAuthState('blocked')
+      setAuthMessage(outcome.message ?? null)
+      return
+    }
+
+    if (outcome.type === 'not_authorized') {
+      setAuthState('not_authorized')
+      setAuthMessage(outcome.message ?? null)
+      return
+    }
+
+    setAuthState('error')
+    setAuthMessage(outcome.message)
+  }
+
+  if (authState === 'booting') {
+    return (
+      <main className="app-shell" dir="rtl">
+        <AuthShellMarker />
+        <section className="panel" style={{ maxWidth: 560, margin: '12vh auto', padding: '2rem' }}>
+          <h1>טוען הרשאות...</h1>
+        </section>
+      </main>
+    )
+  }
+
+  if (authState === 'unauthenticated') {
+    return (
+      <>
+        <AuthShellMarker />
+        <LoginScreen onOutcome={handleLoginOutcome} />
+      </>
+    )
+  }
+
+  if (authState === 'pending') {
+    return (
+      <>
+        <AuthShellMarker />
+        <PendingScreen onLogout={logout} />
+      </>
+    )
+  }
+
+  if (authState === 'blocked') {
+    return (
+      <>
+        <AuthShellMarker />
+        <BlockedScreen message={authMessage ?? undefined} onLogout={logout} />
+      </>
+    )
+  }
+
+  if (authState === 'not_authorized') {
+    return (
+      <>
+        <AuthShellMarker />
+        <NotAuthorizedScreen message={authMessage ?? undefined} onBackToLogin={() => setAuthState('unauthenticated')} />
+      </>
+    )
+  }
+
+  if (authState === 'error') {
+    return (
+      <main className="app-shell" dir="rtl">
+        <AuthShellMarker />
+        <section className="panel" style={{ maxWidth: 560, margin: '12vh auto', padding: '2rem' }}>
+          <h1>שגיאת אימות</h1>
+          <p>{authMessage || 'אירעה שגיאה לא צפויה.'}</p>
+          <button type="button" className="tab" onClick={() => window.location.reload()}>
+            נסה שוב
+          </button>
+        </section>
+      </main>
+    )
+  }
+
+  if (allowedViews.length === 0) {
+    return (
+      <main className="app-shell" dir="rtl">
+        <AuthShellMarker />
+        <section className="panel" style={{ maxWidth: 560, margin: '12vh auto', padding: '2rem' }}>
+          <h1>אין מסכים זמינים</h1>
+          <p>אין לך הרשאות מסך פעילות כרגע. פנה למנהל המערכת.</p>
+          <button type="button" className="tab" onClick={() => void logout()}>
+            התנתקות
+          </button>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <main className="app-shell app-layout" dir="rtl">
+      <AuthShellMarker />
       <aside className="panel side-nav" aria-label="ניווט ראשי">
         <div className="side-nav-head">
           <span className="header-dot" aria-hidden>
@@ -112,43 +410,24 @@ function App() {
           <span>Upflow</span>
         </div>
 
+        <p className="calendar-note">{authUser ? `${authUser.displayName} | ${authUser.role}` : 'Authenticated'}</p>
+
         <nav className="side-tabs">
-          <button
-            type="button"
-            className={`tab side-tab ${activeView === 'assistant' ? 'tab-active' : ''}`}
-            onClick={() => setActiveView('assistant')}
-          >
-            סוכן AI
-          </button>
-          <button
-            type="button"
-            className={`tab side-tab ${activeView === 'calendar' ? 'tab-active' : ''}`}
-            onClick={() => setActiveView('calendar')}
-          >
-            לוח זמנים
-          </button>
-          <button
-            type="button"
-            className={`tab side-tab ${activeView === 'clients' ? 'tab-active' : ''}`}
-            onClick={() => setActiveView('clients')}
-          >
-            לקוחות
-          </button>
-          <button
-            type="button"
-            className={`tab side-tab ${activeView === 'team' ? 'tab-active' : ''}`}
-            onClick={() => setActiveView('team')}
-          >
-            צוות
-          </button>
-          <button
-            type="button"
-            className={`tab side-tab ${activeView === 'equipment' ? 'tab-active' : ''}`}
-            onClick={() => setActiveView('equipment')}
-          >
-            תיקי מתקן
-          </button>
+          {allowedViews.map((view) => (
+            <button
+              key={view}
+              type="button"
+              className={`tab side-tab ${activeView === view ? 'tab-active' : ''}`}
+              onClick={() => setActiveView(view)}
+            >
+              {viewMeta[view].title}
+            </button>
+          ))}
         </nav>
+
+        <button type="button" className="tab" onClick={() => void logout()}>
+          התנתקות
+        </button>
       </aside>
 
       <section className="app-main">
@@ -157,7 +436,11 @@ function App() {
             <span className="header-tag">{viewMeta[activeView].tag}</span>
             <h1>{viewMeta[activeView].title}</h1>
             <p className="sync-indicator">
-              {syncState === 'syncing' ? 'מסנכרן מול Monday...' : `סנכרון אחרון: ${formatSyncTime(lastSyncAt)}`}
+              {canUseSnapshot
+                ? syncState === 'syncing'
+                  ? 'מסנכרן מול Monday...'
+                  : `סנכרון אחרון: ${formatSyncTime(lastSyncAt)}`
+                : 'אין הרשאת Snapshot לנתוני Monday'}
               {syncState === 'error' && syncError ? ` | שגיאה: ${syncError}` : ''}
             </p>
           </header>
