@@ -1,6 +1,17 @@
 ﻿# Codex Task Index
 
-## Recommended Execution Order
+## V1 Canonical Execution Order (Smallest Safe Slice)
+1. `010-v1-canonical-model-alignment.md`
+2. `011-v1-sync-responsibility-hardening.md`
+3. `012-v1-runtime-projections.md`
+4. `013-v1-exceptions-canonical-rules.md`
+5. `014-v1-ui-wiring-canonical-projections.md`
+6. `015-v1-control-room-summary-and-tabs.md`
+7. `016-v1-control-room-operations-queue.md`
+8. `017-v1-control-room-operation-modal-and-next-action.md`
+9. `018-v1-control-room-role-scope-hardening.md`
+
+## Existing Tasks (Reference / Legacy Sequence)
 1. `001-domain-contracts.md`
 2. `002a-postgres-relational-foundation.md`
 3. `002b-sync-persistence-boundaries.md`
@@ -14,11 +25,9 @@
 11. `008-ai-context-regrounding.md`
 12. `009-validation-observability.md`
 
-## Supabase Prerequisites
-- Supabase project exists, but schema/credentials/MCP integration must be explicitly validated in-task before runtime integration work.
-
 ## Validation Gate
-Do not start the next task until current task validation expectations pass.
+- Do not start the next task until current task validation expectations pass.
+- Prefer runtime checks against live snapshot/sync diagnostics, not assumptions.
 
 ## Escalation Rule
 If blocked after 1-2 iterations, consult external references (official docs/vendor APIs), capture findings, then continue.

@@ -77,3 +77,27 @@ Record what was checked and what decision was taken.
 - Redact secrets from logs, error messages, screenshots, and debug output.
 - If a secret is suspected to be exposed, stop and instruct the user to rotate it before continuing.
 
+## Operational model source of truth
+
+- Read `docs/upflow_operational_model_v1_he.md` before any work related to:
+  - operational data model
+  - runtime sync
+  - Monday board mappings
+  - Team / Calendar / Operations / Facility views
+  - exceptions
+  - AI operational context
+- Treat it as the V1 canonical spec for operational control.
+- Prefer incremental alignment of the current codebase to this spec.
+- Do not implement UI heuristics where canonical runtime projections are required.
+- If the codebase conflicts with the document, report the conflict explicitly before proceeding.
+
+## Control room UI source of truth
+
+- Read `docs/operations_control_room_spec_he.md` before any work related to:
+  - Operations Control Room layout and behavior
+  - summary cards / management tabs / operations queue
+  - operation drilldown modal and recommended next action
+  - role-scoped control room behavior (operations manager vs technician)
+- Treat this document as the canonical V1 UI intent for control-room workflows.
+- Apply it incrementally on top of existing runtime projections and exceptions.
+- If it conflicts with existing UI behavior, align via small slices and document the conflict first.

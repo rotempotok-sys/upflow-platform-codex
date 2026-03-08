@@ -1,106 +1,58 @@
-﻿# Codex Roadmap
+﻿# Codex Roadmap (V1 Operational Model Aligned)
 
-## Scope
-Translate the system specs into incremental execution for the existing `upflow-platform/app` codebase.
-No full rewrite. No platform migration in this phase.
+## Source of Truth
+This roadmap is derived from:
+- `docs/upflow_operational_model_v1_he.md` (canonical V1 model)
+- `docs/upflow_monday_system_spec.md`
+- `docs/upflow_information_system_blueprint_he.md`
+- `docs/operations_control_room_spec_he.md` (V1 control-room UI spec)
+- `AGENTS.md`
 
-## Prerequisites (Current)
-- A Supabase account and project exist.
-- Supabase Postgres is the intended app runtime database.
-- Schema, credentials, and MCP integration are not assumed configured and must be validated explicitly.
+## Constraints
+- Monday = operational source of truth.
+- Google Calendar = schedule truth in practice.
+- Supabase Postgres = runtime application database.
+- No architecture redesign unless a direct V1 conflict requires correction.
+- Implement incrementally, one scoped backend-first task at a time.
 
-## Epic 1: Domain Contracts and Mapping Inventory
-Goal: define typed contracts, board/column/relation mapping inventory, and critical mapping assumptions.
-Dependencies: none.
+## Known V1 Conflicts To Resolve Incrementally
+1. Operation lifecycle primary status in V1 is business status (`color_mkngxc3y`), while parts of runtime still rely on secondary status fields.
+2. V1 requires canonical `is_open` from operation + schedule state composition, while current runtime/UI still use partial heuristics.
+3. V1 user inclusion rules require valid+active+approved+relevant users; current sync behavior still needs explicit canonical gating.
+4. V1 daily/weekly control projections are required for technician/facility/operation views and are only partially implemented.
+5. Control room behavior is currently spread across mixed widgets; V1 requires an operation-first control-room flow.
 
-### Deliverables
-- Shared TS/domain types for operations, schedule, reports, exceptions, sync metadata.
-- Centralized mapping inventory for Monday board IDs, column IDs, mirrored identity fields, and relation keys.
-- Explicit fail-closed mapping policy for missing/ambiguous critical fields.
+## V1 Execution Epics
 
-## Epic 2: Supabase Postgres Runtime Storage Foundation
-Goal: introduce the Supabase Postgres runtime database foundation before any UI migration.
-Dependencies: Epic 1.
+### Epic A: Canonical Model Alignment
+Goal: align runtime contracts and mappings with V1 canonical entities and lifecycle semantics.
 
-### Deliverables
-- Initial relational schema plan for normalized core entities and sync metadata tables.
-- Migration/bootstrap strategy aligned with current backend patterns.
-- Read/write ownership rules: Monday operational truth, Sheets ops staging/control, Supabase Postgres runtime store.
+### Epic B: Sync Responsibility Hardening
+Goal: enforce explicit source ownership and deterministic sync rules, including fail-closed behavior.
 
-## Epic 3: Sync Persistence Boundaries
-Goal: define and implement where data is persisted, where it is derived, and what remains source-owned.
-Dependencies: Epic 2.
+### Epic C: Runtime Projections
+Goal: provide canonical runtime projections for technician, facility, operation, and daily/weekly control.
 
-### Deliverables
-- Persistence boundary contract for ingest vs normalized snapshot vs projections.
-- Guardrails for what is never authored in app runtime (source-owned fields).
-- Fail-closed behavior when required mappings are missing or ambiguous during sync.
+### Epic D: Exceptions Engine
+Goal: compute deterministic operational exceptions from canonical model states.
 
-## Epic 4: Snapshot and Projection Storage
-Goal: establish deterministic snapshot/projection storage approach in Supabase Postgres for API consumption.
-Dependencies: Epic 3.
+### Epic E: UI Wiring (Incremental)
+Goal: wire existing screens to canonical projections with explicit empty/error/auth handling.
 
-### Deliverables
-- Snapshot tables/versioning strategy for operation-centric runtime reads.
-- Projection storage approach for role/scoped views (`me`, team, calendar, reports).
-- Exception and sync-run persistence model for diagnostics and auditability.
+### Epic F: Operations Control Room (V1 UI Intent)
+Goal: align Team/Operations surface to the control-room spec with action-first UX and role-scoped behavior, without broad redesign.
 
-## Epic 5: Operations Snapshot API (Supabase Postgres-Backed)
-Goal: expose guarded endpoints from Supabase Postgres snapshot/projections with explicit scoping.
-Dependencies: Epic 4.
+## Smallest Safe Implementation Order
+1. `010-v1-canonical-model-alignment.md`
+2. `011-v1-sync-responsibility-hardening.md`
+3. `012-v1-runtime-projections.md`
+4. `013-v1-exceptions-canonical-rules.md`
+5. `014-v1-ui-wiring-canonical-projections.md`
+6. `015-v1-control-room-summary-and-tabs.md`
+7. `016-v1-control-room-operations-queue.md`
+8. `017-v1-control-room-operation-modal-and-next-action.md`
+9. `018-v1-control-room-role-scope-hardening.md`
 
-### Deliverables
-- Guarded endpoint(s) for operations + schedule + report linkage from persisted runtime state.
-- Server-side scope filtering (Admin/Operations vs Technician).
-- Stable fail-closed API responses for unresolved joins/mappings.
-
-## Epic 6: Team + Calendar Migration
-Goal: replace legacy/mock behavior with API-backed data and explicit linkage.
-Dependencies: Epic 5.
-
-### Deliverables
-- Team view powered by snapshot API.
-- Calendar view using explicit linked fields (not title parsing).
-- Clear mismatch/exception indicators.
-
-## Epic 7: Reports + Exceptions Views
-Goal: expose execution/reporting quality and operational gaps.
-Dependencies: Epics 5-6.
-
-### Deliverables
-- Report visibility by role/scope.
-- Exceptions queue from deterministic rules.
-- Operational statuses aligned with spec semantics.
-
-## Epic 8: Operations Control and AI Context Hardening
-Goal: central control surface and better AI grounding on trusted runtime data.
-Dependencies: Epics 5-7.
-
-### Deliverables
-- Operations Control screen (operation lifecycle table).
-- AI context generation from Supabase Postgres snapshot/projections, not legacy mock task arrays.
-- Reduced ambiguity and better auditability in generated answers.
-
-## Epic 9: Observability and Validation Coverage
-Goal: make failures diagnosable and rollouts safe.
-Dependencies: all previous epics.
-
-### Deliverables
-- Sync/error telemetry and reason codes in API logs.
-- Task-level validation checklist execution.
-- Documentation updates in `README.md` and `docs/codex/tasks` notes.
-
-## Dependency Order (Recommended)
-1. Epic 1
-2. Epic 2
-3. Epic 3
-4. Epic 4
-5. Epic 5
-6. Epic 6
-7. Epic 7
-8. Epic 8
-9. Epic 9
-
-## Notes
-- Keep each implementation step small and reviewable.
-- If blocked after 1-2 iterations, consult external references and continue with explicit assumptions.
+## Validation Gate
+- Do not start the next task before current task validation expectations pass.
+- If blocked after 1-2 iterations, consult external references and record the decision.
