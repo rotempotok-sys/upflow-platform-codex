@@ -8,7 +8,7 @@ interface GoogleOAuth2 {
   initTokenClient: (config: {
     client_id: string
     scope: string
-    callback: (response: { access_token?: string; error?: string }) => void
+    callback: (response: { access_token?: string; error?: string; expires_in?: number }) => void
   }) => GoogleTokenClient
   revoke: (token: string, done?: () => void) => void
 }
@@ -54,3 +54,4 @@ declare global {
 }
 
 export {}
+

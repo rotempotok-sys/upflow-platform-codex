@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { BlockedScreen } from './features/auth/BlockedScreen'
 import { LoginScreen, type LoginOutcome } from './features/auth/LoginScreen'
 import { NotAuthorizedScreen } from './features/auth/NotAuthorizedScreen'
@@ -8,7 +8,7 @@ import { CalendarLinkPage } from './features/calendar/CalendarLinkPage'
 import { ClientsOverview } from './features/clients/ClientsOverview'
 import { EquipmentBoardPage } from './features/equipment/EquipmentBoardPage'
 import { TeamOverview } from './features/team/TeamOverview'
-import type { Client, FacilityRecord } from './types/scheduling'
+import type { Client, FacilityRecord, RuntimeAssignmentSnapshot, RuntimeOperationSnapshot, RuntimeUserSnapshot } from './types/scheduling'
 
 type ViewKey = 'assistant' | 'team' | 'clients' | 'calendar' | 'equipment'
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error'
@@ -26,6 +26,9 @@ type PermissionKey =
 interface MondaySnapshotResponse {
   clients: Client[]
   facilities: FacilityRecord[]
+  operations: RuntimeOperationSnapshot[]
+  assignments: RuntimeAssignmentSnapshot[]
+  users: RuntimeUserSnapshot[]
   fetchedAt: string
   error?: {
     code?: string
@@ -107,6 +110,9 @@ function App() {
   const [activeView, setActiveView] = useState<ViewKey>('assistant')
   const [clients, setClients] = useState<Client[]>([])
   const [facilities, setFacilities] = useState<FacilityRecord[]>([])
+  const [operations, setOperations] = useState<RuntimeOperationSnapshot[]>([])
+  const [assignments, setAssignments] = useState<RuntimeAssignmentSnapshot[]>([])
+  const [users, setUsers] = useState<RuntimeUserSnapshot[]>([])
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
@@ -124,7 +130,7 @@ function App() {
 
   const canUseSnapshot = useMemo(() => {
     if (authState !== 'approved') return false
-    return ['screen.assistant', 'screen.clients', 'screen.equipment'].some((permission) =>
+    return ['screen.assistant', 'screen.clients', 'screen.equipment', 'screen.team'].some((permission) =>
       authPermissions.includes(permission as PermissionKey),
     )
   }, [authState, authPermissions])
@@ -144,6 +150,9 @@ function App() {
     setSyncError(null)
     setClients([])
     setFacilities([])
+    setOperations([])
+    setAssignments([])
+    setUsers([])
   }
 
   useEffect(() => {
@@ -221,6 +230,9 @@ function App() {
     if (!canUseSnapshot) {
       setClients([])
       setFacilities([])
+      setOperations([])
+      setAssignments([])
+      setUsers([])
       return
     }
 
@@ -232,7 +244,7 @@ function App() {
       setSyncError(null)
 
       try {
-        const response = await fetch('/api/monday/snapshot', {
+        const response = await fetch('/api/runtime-db/snapshot', {
           method: 'GET',
           cache: 'no-store',
         })
@@ -242,18 +254,23 @@ function App() {
           httpStatus: response.status,
           clients: Array.isArray(payload.clients) ? payload.clients.length : null,
           facilities: Array.isArray(payload.facilities) ? payload.facilities.length : null,
+          operations: Array.isArray(payload.operations) ? payload.operations.length : null,
+          assignments: Array.isArray(payload.assignments) ? payload.assignments.length : null,
           errorCode: payload.error?.code ?? null,
         })
 
         if (!response.ok) {
           const code = payload.error?.code
-          const message = payload.error?.message || 'Monday snapshot request failed'
+          const message = payload.error?.message || 'Runtime snapshot request failed'
 
           if (code === 'AUTH_BLOCKED') {
             setAuthState('blocked')
             setAuthMessage(message)
             setClients([])
             setFacilities([])
+            setOperations([])
+            setAssignments([])
+            setUsers([])
             return
           }
 
@@ -262,6 +279,9 @@ function App() {
             setAuthMessage(message)
             setClients([])
             setFacilities([])
+            setOperations([])
+            setAssignments([])
+            setUsers([])
             return
           }
 
@@ -272,6 +292,9 @@ function App() {
 
         setClients(Array.isArray(payload.clients) ? payload.clients : [])
         setFacilities(Array.isArray(payload.facilities) ? payload.facilities : [])
+        setOperations(Array.isArray(payload.operations) ? payload.operations : [])
+        setAssignments(Array.isArray(payload.assignments) ? payload.assignments : [])
+        setUsers(Array.isArray(payload.users) ? payload.users : [])
         setLastSyncAt(payload.fetchedAt || new Date().toISOString())
         setSyncState('ok')
       } catch (error) {
@@ -280,6 +303,9 @@ function App() {
         setSyncError(error instanceof Error ? error.message : 'שגיאת סנכרון לא ידועה')
         setClients([])
         setFacilities([])
+        setOperations([])
+        setAssignments([])
+        setUsers([])
       }
     }
 
@@ -390,7 +416,7 @@ function App() {
         <AuthShellMarker />
         <section className="panel" style={{ maxWidth: 560, margin: '12vh auto', padding: '2rem' }}>
           <h1>אין מסכים זמינים</h1>
-          <p>אין לך הרשאות מסך פעילות כרגע. פנה למנהל המערכת.</p>
+          <p>אין לך הרשאת מסך פעילות כרגע. פנה למנהל המערכת.</p>
           <button type="button" className="tab" onClick={() => void logout()}>
             התנתקות
           </button>
@@ -448,7 +474,7 @@ function App() {
 
         <section className="view-stage" aria-label={viewMeta[activeView].title}>
           {activeView === 'assistant' ? <OperationsAIAgentPage clientsData={clients} facilitiesData={facilities} /> : null}
-          {activeView === 'team' ? <TeamOverview /> : null}
+          {activeView === 'team' ? <TeamOverview facilitiesData={facilities} operationsData={operations} assignmentsData={assignments} usersData={users} isLoading={syncState === 'syncing' && facilities.length === 0 && operations.length === 0} errorMessage={syncState === 'error' ? syncError : null} /> : null}
           {activeView === 'clients' ? <ClientsOverview clientsData={clients} /> : null}
           {activeView === 'calendar' ? <CalendarLinkPage /> : null}
           {activeView === 'equipment' ? <EquipmentBoardPage facilitiesData={facilities} /> : null}
@@ -459,3 +485,7 @@ function App() {
 }
 
 export default App
+
+
+
+

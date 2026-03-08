@@ -43,6 +43,8 @@ const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || '586770624218-11h357fh8gj64plgglbdnk7bi14cqr9r.apps.googleusercontent.com'
 const TARGET_CALENDAR_NAME = import.meta.env.VITE_GOOGLE_TARGET_CALENDAR_NAME?.trim() || 'לוז טכנאים'
 const TARGET_CALENDAR_ID = import.meta.env.VITE_GOOGLE_TARGET_CALENDAR_ID?.trim() || 'upflow.operations@gmail.com'
+const CALENDAR_TOKEN_STORAGE_KEY = 'upflow_calendar_token'
+const CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY = 'upflow_calendar_token_expires_at'
 
 function loadGoogleIdentityScript() {
   return new Promise<void>((resolve, reject) => {
@@ -172,9 +174,15 @@ export function CalendarLinkPage() {
           scope: 'https://www.googleapis.com/auth/calendar.readonly',
           callback: async (response) => {
             if (response.error || !response.access_token) {
-              setError('נכשל אימות מול Google Calendar')
+              const isSilentFailure = response.error === 'interaction_required' || response.error === 'login_required'
+              setError(isSilentFailure ? '' : 'נכשל אימות מול Google Calendar')
               return
             }
+
+            const expiresInSeconds = Number(response.expires_in ?? 0)
+            const expiresAtMs = Date.now() + Math.max(expiresInSeconds - 60, 30) * 1000
+            localStorage.setItem(CALENDAR_TOKEN_STORAGE_KEY, response.access_token)
+            localStorage.setItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY, String(expiresAtMs))
 
             setError('')
             setAccessToken(response.access_token)
@@ -184,6 +192,20 @@ export function CalendarLinkPage() {
 
         setTokenClient(client)
         setIsGoogleReady(true)
+
+        const storedToken = localStorage.getItem(CALENDAR_TOKEN_STORAGE_KEY)
+        const storedExpiryRaw = localStorage.getItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY)
+        const storedExpiry = Number(storedExpiryRaw ?? '0')
+        const hasValidStoredToken = Boolean(storedToken && Number.isFinite(storedExpiry) && storedExpiry > Date.now())
+
+        if (hasValidStoredToken && storedToken) {
+          setAccessToken(storedToken)
+          await initializeCalendar(storedToken)
+          return
+        }
+
+        // Silent auth attempt: avoid manual calendar connect when app user is already signed in.
+        client.requestAccessToken({ prompt: 'none' })
       } catch {
         setError('לא ניתן לטעון את Google Identity. בדוק חיבור רשת והרשאות OAuth.')
       }
@@ -422,3 +444,4 @@ export function CalendarLinkPage() {
     </section>
   )
 }
+

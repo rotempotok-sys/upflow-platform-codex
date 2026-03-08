@@ -7,6 +7,12 @@ import { handleAuthRoutes } from './server/auth/routes'
 import { requireApprovedPermissions } from './server/auth/guards'
 import { handlePermissionsRoutes } from './server/auth/permissionsRoutes'
 import type { ApprovalStatus, PermissionKey, PlatformRole } from './server/auth/permissions'
+import { buildMondayMappingInventory } from './server/monday/mappingInventory'
+import { checkSupabaseRuntimeHealth, createSupabaseAdminClient, readSupabaseRuntimeConfig } from './server/runtime/supabase'
+import { persistRuntimeSnapshotToSupabase } from './server/runtime/sync'
+import { normalizeOperationsFromBoard, normalizeUsersFromAuthBoard } from './server/runtime/mondayRuntimeNormalize'
+import { readLatestRuntimeSyncRun, readRuntimeClientsAndFacilities } from './server/runtime/read'
+import { sanitizeRuntimeErrorMessage } from './server/runtime/security'
 
 interface ChatRequestBody {
   userId?: string
@@ -56,6 +62,10 @@ interface ProxyEnv {
   authToggleTeamColumnId: string
   authToggleEquipmentColumnId: string
   authToggleAiAskColumnId: string
+  supabaseUrl: string
+  supabaseAnonKey: string
+  supabaseServiceRoleKey: string
+  supabaseDbSchema: string
   isProduction: boolean
 }
 
@@ -114,6 +124,7 @@ const MAX_USER_HISTORY = 300
 const CONTEXT_HISTORY_WINDOW = 5
 const MAX_LONG_TERM_ITEMS = 80
 const MAX_HIVE_HIGHLIGHTS = 80
+const RUNTIME_SYNC_SIGNATURE = 'runtime-sync-v3-users-ops-assignments-2026-03-07'
 
 let memoryCache: MemoryStore | null = null
 
@@ -808,6 +819,8 @@ function attachApiMiddleware(
   env: ProxyEnv,
 ) {
   middlewares.use(async (req, res, next) => {
+    const requestPath = String(req.url ?? '').split('?')[0]
+    const runtimeSecrets = [env.supabaseAnonKey, env.supabaseServiceRoleKey, env.mondayApiToken, env.openRouterApiKey]
     const authHandled = await handleAuthRoutes(req, res, {
       googleClientId: env.googleClientId,
       isProduction: env.isProduction,
@@ -839,7 +852,8 @@ function attachApiMiddleware(
     })
 
     if (permissionsHandled || res.writableEnded) return
-    if (req.url === '/api/monday/snapshot' && req.method === 'GET') {
+    
+    if (requestPath === '/api/runtime-db/health' && req.method === 'GET') {
       const guard = await requireApprovedPermissions({
         req,
         res,
@@ -848,7 +862,356 @@ function attachApiMiddleware(
       })
       if (!guard) return
 
-      const snapshotPermissions: PermissionKey[] = ['screen.assistant', 'screen.clients', 'screen.equipment']
+      try {
+        const health = await checkSupabaseRuntimeHealth(
+          readSupabaseRuntimeConfig({
+            SUPABASE_URL: env.supabaseUrl,
+            SUPABASE_ANON_KEY: env.supabaseAnonKey,
+            SUPABASE_SERVICE_ROLE_KEY: env.supabaseServiceRoleKey,
+            SUPABASE_DB_SCHEMA: env.supabaseDbSchema,
+          }),
+        )
+
+        if (health.missingConfig.length > 0) {
+          jsonError(res, 500, 'SUPABASE_CONFIG_MISSING', 'Supabase runtime config is missing', {
+            missingConfig: health.missingConfig,
+            schema: health.schema,
+          })
+          return
+        }
+
+        if (health.missingTables.length > 0) {
+          jsonError(res, 503, 'SUPABASE_SCHEMA_MISSING', 'Supabase runtime schema is incomplete', {
+            missingTables: health.missingTables,
+            schema: health.schema,
+          })
+          return
+        }
+
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify({
+            ok: true,
+            health: {
+              ready: true,
+              schema: health.schema,
+              checkedAt: new Date().toISOString(),
+            },
+          }),
+        )
+      } catch (error) {
+        const safeMessage = sanitizeRuntimeErrorMessage(error instanceof Error ? error.message : 'Supabase health check failed', runtimeSecrets)
+        console.error('[runtime-db.health]', safeMessage)
+        jsonError(res, 500, 'SUPABASE_HEALTHCHECK_FAILED', safeMessage)
+      }
+
+      return
+    }
+
+    if (requestPath === '/api/runtime-db/sync/monday-snapshot' && req.method === 'POST') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: ['screen.clients', 'screen.equipment'],
+      })
+      if (!guard) return
+
+      if (guard.user.role !== 'Admin' && guard.user.role !== 'Operations') {
+        jsonError(res, 403, 'AUTH_PERMISSION_DENIED', 'Only Admin/Operations can trigger runtime sync')
+        return
+      }
+
+      if (!env.mondayApiToken) {
+        jsonError(res, 500, 'MONDAY_CONFIG_MISSING', 'MONDAY_API_TOKEN is missing on server')
+        return
+      }
+
+      const supabaseConfig = readSupabaseRuntimeConfig({
+        SUPABASE_URL: env.supabaseUrl,
+        SUPABASE_ANON_KEY: env.supabaseAnonKey,
+        SUPABASE_SERVICE_ROLE_KEY: env.supabaseServiceRoleKey,
+        SUPABASE_DB_SCHEMA: env.supabaseDbSchema,
+      })
+
+      try {
+        const health = await checkSupabaseRuntimeHealth(supabaseConfig)
+        if (health.missingConfig.length > 0) {
+          jsonError(res, 500, 'SUPABASE_CONFIG_MISSING', 'Critical Supabase runtime config is missing', {
+            missingConfig: health.missingConfig,
+          })
+          return
+        }
+
+        if (health.missingTables.length > 0) {
+          jsonError(res, 412, 'SUPABASE_SCHEMA_MISSING', 'Supabase runtime schema is not ready', {
+            missingTables: health.missingTables,
+          })
+          return
+        }
+        const mappingInventory = buildMondayMappingInventory()
+
+        const clientsBoard = await fetchBoard(env.mondayApiToken, env.mondayClientsBoardId)
+        const equipmentBoard = await fetchBoard(env.mondayApiToken, env.mondayEquipmentBoardId)
+        const authBoard = await fetchBoard(env.mondayApiToken, mappingInventory.boards.auth)
+        const operationsBoard = await fetchBoard(env.mondayApiToken, mappingInventory.boards.operations)
+
+        const clients = normalizeClientsBoard(clientsBoard)
+        const facilities = normalizeEquipmentBoard(equipmentBoard)
+        const usersSnapshot = normalizeUsersFromAuthBoard(authBoard, mappingInventory)
+        const operationsSnapshot = normalizeOperationsFromBoard(operationsBoard, mappingInventory)
+        const fetchedAt = new Date().toISOString()
+
+        const diagnostics = {
+          runtimeSyncSignature: RUNTIME_SYNC_SIGNATURE,
+          schema: env.supabaseDbSchema,
+          fetchedBoards: {
+            clients: { id: String(clientsBoard.id), name: String(clientsBoard.name ?? 'clients'), items: (clientsBoard.items_page?.items ?? []).length },
+            equipment: { id: String(equipmentBoard.id), name: String(equipmentBoard.name ?? 'equipment'), items: (equipmentBoard.items_page?.items ?? []).length },
+            auth: { id: String(authBoard.id), name: String(authBoard.name ?? 'auth'), items: (authBoard.items_page?.items ?? []).length },
+            operations: { id: String(operationsBoard.id), name: String(operationsBoard.name ?? 'operations'), items: (operationsBoard.items_page?.items ?? []).length },
+          },
+          normalized: {
+            clients: clients.length,
+            facilities: facilities.length,
+            users: usersSnapshot.users.length,
+            operations: operationsSnapshot.operations.length,
+            assignments: operationsSnapshot.assignments.length,
+          },
+          skipped: {
+            users: usersSnapshot.diagnostics.skipped,
+            operations: operationsSnapshot.diagnostics.skipped,
+          },
+        }
+
+        const supabase = createSupabaseAdminClient(supabaseConfig)
+        const result = await persistRuntimeSnapshotToSupabase(supabase, {
+          source: 'monday_snapshot',
+          fetchedAt,
+          clients,
+          facilities,
+          users: usersSnapshot.users,
+          operations: operationsSnapshot.operations,
+          assignments: operationsSnapshot.assignments,
+          syncDiagnostics: diagnostics,
+        })
+
+        const persisted = {
+          clients: result.clientsUpserted,
+          facilities: result.facilitiesUpserted,
+          users: result.usersUpserted,
+          operations: result.operationsUpserted,
+          assignments: result.assignmentsUpserted,
+        }
+
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify({
+            ok: true,
+            fetchedAt,
+            runtimeSyncSignature: RUNTIME_SYNC_SIGNATURE,
+            diagnostics: {
+              ...diagnostics,
+              persisted,
+            },
+            sync: result,
+          }),
+        )
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : 'Runtime sync failed'
+        const safeMessage = sanitizeRuntimeErrorMessage(rawMessage, runtimeSecrets)
+        console.error('[runtime-db.sync]', safeMessage)
+        if (rawMessage.includes('SUPABASE_')) {
+          jsonError(res, 502, 'SUPABASE_SYNC_FAILED', safeMessage)
+          return
+        }
+
+        if (rawMessage.includes('MAPPING_')) {
+          jsonError(res, 500, 'MAPPING_CONFIG_ERROR', safeMessage)
+          return
+        }
+
+        if (rawMessage.includes('Monday')) {
+          jsonError(res, 502, 'UPSTREAM_FETCH_FAILED', safeMessage)
+          return
+        }
+
+        jsonError(res, 500, 'RUNTIME_SYNC_FAILED', safeMessage)
+      }
+
+      return
+    }
+
+    if (requestPath === '/api/runtime-db/sync/latest' && req.method === 'GET') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: [],
+      })
+      if (!guard) return
+
+      const snapshotPermissions: PermissionKey[] = ['screen.assistant', 'screen.clients', 'screen.equipment', 'screen.team']
+      if (!hasAnyPermission(guard.user.permissions.keys, snapshotPermissions)) {
+        jsonError(res, 403, 'AUTH_PERMISSION_DENIED', 'Missing runtime sync diagnostics permissions', {
+          requiredAnyOf: snapshotPermissions,
+        })
+        return
+      }
+
+      const supabaseConfig = readSupabaseRuntimeConfig({
+        SUPABASE_URL: env.supabaseUrl,
+        SUPABASE_ANON_KEY: env.supabaseAnonKey,
+        SUPABASE_SERVICE_ROLE_KEY: env.supabaseServiceRoleKey,
+        SUPABASE_DB_SCHEMA: env.supabaseDbSchema,
+      })
+
+      try {
+        const health = await checkSupabaseRuntimeHealth(supabaseConfig)
+        if (health.missingConfig.length > 0) {
+          jsonError(res, 500, 'SUPABASE_CONFIG_MISSING', 'Supabase runtime config is missing', {
+            missingConfig: health.missingConfig,
+            schema: health.schema,
+          })
+          return
+        }
+
+        if (health.missingTables.length > 0) {
+          jsonError(res, 503, 'SUPABASE_SCHEMA_MISSING', 'Supabase runtime schema is incomplete', {
+            missingTables: health.missingTables,
+            schema: health.schema,
+          })
+          return
+        }
+
+        const supabase = createSupabaseAdminClient(supabaseConfig)
+        const latest = await readLatestRuntimeSyncRun(supabase, runtimeSecrets)
+
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify({
+            ok: true,
+            source: 'supabase_runtime',
+            ...latest,
+          }),
+        )
+      } catch (error) {
+        const safeMessage = sanitizeRuntimeErrorMessage(
+          error instanceof Error ? error.message : 'Runtime sync latest failed',
+          runtimeSecrets,
+        )
+        console.error('[runtime-db.sync.latest]', safeMessage)
+        jsonError(res, 502, 'RUNTIME_SYNC_LATEST_FAILED', safeMessage)
+      }
+
+      return
+    }
+
+    if (requestPath === '/api/runtime-db/smoke' && req.method === 'GET') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: [],
+      })
+      if (!guard) return
+
+      if (guard.user.role !== 'Admin' && guard.user.role !== 'Operations') {
+        jsonError(res, 403, 'AUTH_PERMISSION_DENIED', 'Only Admin/Operations can run runtime smoke checks')
+        return
+      }
+
+      const supabaseConfig = readSupabaseRuntimeConfig({
+        SUPABASE_URL: env.supabaseUrl,
+        SUPABASE_ANON_KEY: env.supabaseAnonKey,
+        SUPABASE_SERVICE_ROLE_KEY: env.supabaseServiceRoleKey,
+        SUPABASE_DB_SCHEMA: env.supabaseDbSchema,
+      })
+
+      try {
+        const health = await checkSupabaseRuntimeHealth(supabaseConfig)
+        if (health.missingConfig.length > 0) {
+          jsonError(res, 500, 'SUPABASE_CONFIG_MISSING', 'Supabase runtime config is missing', {
+            missingConfig: health.missingConfig,
+            schema: health.schema,
+          })
+          return
+        }
+
+        if (health.missingTables.length > 0) {
+          jsonError(res, 503, 'SUPABASE_SCHEMA_MISSING', 'Supabase runtime schema is incomplete', {
+            missingTables: health.missingTables,
+            schema: health.schema,
+          })
+          return
+        }
+
+        const supabase = createSupabaseAdminClient(supabaseConfig)
+        const latestSync = await readLatestRuntimeSyncRun(supabase, runtimeSecrets)
+        const runtimeSnapshot = await readRuntimeClientsAndFacilities(supabase, runtimeSecrets)
+
+        const latest = latestSync.latest as Record<string, unknown> | null
+
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(
+          JSON.stringify({
+            ok: true,
+            source: 'supabase_runtime',
+            smoke: {
+              checkedAt: new Date().toISOString(),
+              health: {
+                ready: true,
+                schema: health.schema,
+              },
+              latestSync: latest
+                ? {
+                    id: latest.id ?? null,
+                    source: latest.source ?? null,
+                    status: latest.status ?? null,
+                    startedAt: latest.started_at ?? null,
+                    finishedAt: latest.finished_at ?? null,
+                    rowsUpserted: latest.rows_upserted ?? null,
+                  }
+                : null,
+              snapshot: {
+                fetchedAt: runtimeSnapshot.fetchedAt,
+                clients: runtimeSnapshot.clients.length,
+                facilities: runtimeSnapshot.facilities.length,
+              },
+            },
+          }),
+        )
+      } catch (error) {
+        const safeMessage = sanitizeRuntimeErrorMessage(
+          error instanceof Error ? error.message : 'Runtime smoke check failed',
+          runtimeSecrets,
+        )
+        console.error('[runtime-db.smoke]', safeMessage)
+        jsonError(res, 502, 'RUNTIME_SMOKE_FAILED', safeMessage)
+      }
+
+      return
+    }
+
+    if (requestPath === '/api/monday/snapshot' && req.method === 'GET') {
+      jsonError(res, 410, 'API_DEPRECATED', 'Use /api/runtime-db/snapshot')
+      return
+    }
+
+    if (requestPath === '/api/runtime-db/snapshot' && req.method === 'GET') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: [],
+      })
+      if (!guard) return
+
+      const snapshotPermissions: PermissionKey[] = ['screen.assistant', 'screen.clients', 'screen.equipment', 'screen.team']
       if (!hasAnyPermission(guard.user.permissions.keys, snapshotPermissions)) {
         jsonError(res, 403, 'AUTH_PERMISSION_DENIED', 'Missing snapshot access permissions', {
           requiredAnyOf: snapshotPermissions,
@@ -866,23 +1229,55 @@ function attachApiMiddleware(
         )
         return
       }
-      if (!env.mondayApiToken) {
-        res.statusCode = 500
-        res.setHeader('Content-Type', 'application/json; charset=utf-8')
-        res.end(JSON.stringify({ error: 'MONDAY_API_TOKEN is missing on server' }))
-        return
-      }
+
+      const supabaseConfig = readSupabaseRuntimeConfig({
+        SUPABASE_URL: env.supabaseUrl,
+        SUPABASE_ANON_KEY: env.supabaseAnonKey,
+        SUPABASE_SERVICE_ROLE_KEY: env.supabaseServiceRoleKey,
+        SUPABASE_DB_SCHEMA: env.supabaseDbSchema,
+      })
 
       try {
-        const clientsBoard = await fetchBoard(env.mondayApiToken, env.mondayClientsBoardId)
-        const equipmentBoard = await fetchBoard(env.mondayApiToken, env.mondayEquipmentBoardId)
+        const health = await checkSupabaseRuntimeHealth(supabaseConfig)
 
-        let clients = normalizeClientsBoard(clientsBoard)
-        let facilities = normalizeEquipmentBoard(equipmentBoard)
+        if (health.missingConfig.length > 0) {
+          jsonError(res, 500, 'SUPABASE_CONFIG_MISSING', 'Supabase runtime config is missing', {
+            missingConfig: health.missingConfig,
+            schema: health.schema,
+          })
+          return
+        }
+
+        if (health.missingTables.length > 0) {
+          jsonError(res, 503, 'SUPABASE_SCHEMA_MISSING', 'Supabase runtime schema is incomplete', {
+            missingTables: health.missingTables,
+            schema: health.schema,
+          })
+          return
+        }
+
+        const supabase = createSupabaseAdminClient(supabaseConfig)
+        const runtimeSnapshot = await readRuntimeClientsAndFacilities(supabase, runtimeSecrets)
+
+        let clients = runtimeSnapshot.clients
+        let facilities = runtimeSnapshot.facilities
+        let operations = runtimeSnapshot.operations
+        let assignments = runtimeSnapshot.assignments
+        let users = runtimeSnapshot.users
 
         if (guard.user.scope.scopedRole) {
           clients = filterByScope(clients, guard.user.scope.clientIds)
           facilities = filterByScope(facilities, guard.user.scope.facilityIds)
+
+          const scopedEmail = String(guard.user.email ?? '')
+            .trim()
+            .toLowerCase()
+          operations = operations.filter((entry) => String(entry.assignedTechnicianEmail ?? '').trim().toLowerCase() === scopedEmail)
+          const allowedOperationIds = new Set(operations.map((entry) => entry.id))
+          assignments = assignments.filter(
+            (entry) => String(entry.userEmail ?? '').trim().toLowerCase() === scopedEmail && allowedOperationIds.has(entry.operationId),
+          )
+          users = users.filter((entry) => entry.email === scopedEmail)
         }
 
         res.statusCode = 200
@@ -891,19 +1286,25 @@ function attachApiMiddleware(
           JSON.stringify({
             clients,
             facilities,
-            fetchedAt: new Date().toISOString(),
+            operations,
+            assignments,
+            users,
+            fetchedAt: runtimeSnapshot.fetchedAt,
+            source: 'supabase_runtime',
           }),
         )
       } catch (error) {
-        res.statusCode = 502
-        res.setHeader('Content-Type', 'application/json; charset=utf-8')
-        res.end(JSON.stringify({ error: error instanceof Error ? error.message : 'Monday snapshot failed' }))
+        const safeMessage = sanitizeRuntimeErrorMessage(
+          error instanceof Error ? error.message : 'Runtime snapshot failed',
+          runtimeSecrets,
+        )
+        console.error('[runtime-db.snapshot]', safeMessage)
+        jsonError(res, 502, 'RUNTIME_SNAPSHOT_FAILED', safeMessage)
       }
 
       return
     }
-
-    if (req.url === '/api/ai/memory' && req.method === 'POST') {
+    if (requestPath === '/api/ai/memory' && req.method === 'POST') {
       const guard = await requireApprovedPermissions({
         req,
         res,
@@ -944,7 +1345,7 @@ function attachApiMiddleware(
       return
     }
 
-    if (req.url === '/api/ai/chat' && req.method === 'POST') {
+    if (requestPath === '/api/ai/chat' && req.method === 'POST') {
       const guard = await requireApprovedPermissions({
         req,
         res,
@@ -1093,8 +1494,66 @@ export default defineConfig(({ mode }) => {
     authToggleTeamColumnId: loaded.AUTH_TOGGLE_TEAM_COLUMN_ID || '',
     authToggleEquipmentColumnId: loaded.AUTH_TOGGLE_EQUIPMENT_COLUMN_ID || '',
     authToggleAiAskColumnId: loaded.AUTH_TOGGLE_AI_ASK_COLUMN_ID || '',
+    supabaseUrl: (loaded.SUPABASE_URL || '').trim(),
+    supabaseAnonKey: (loaded.SUPABASE_ANON_KEY || '').trim(),
+    supabaseServiceRoleKey: (loaded.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
+    supabaseDbSchema: (loaded.SUPABASE_DB_SCHEMA || 'public').trim() || 'public',
     isProduction: mode === 'production',
   }
+
+  // Task 001: fail-closed validation for critical board/column mappings.
+  // Uses explicit defaults from the system spec and throws on missing/ambiguous mappings.
+  buildMondayMappingInventory({
+    boards: {
+      auth: env.mondayAuthBoardId,
+      clients: env.mondayClientsBoardId,
+      equipment: env.mondayEquipmentBoardId,
+      operations: (loaded.MONDAY_OPERATIONS_BOARD_ID || '1798247340').trim(),
+      schedule: (loaded.MONDAY_SCHEDULE_BOARD_ID || '1783389345').trim(),
+      reports: (loaded.MONDAY_REPORTS_BOARD_ID || '1282241018').trim(),
+    },
+    columns: {
+      auth: {
+        role: (loaded.AUTH_ROLE_COLUMN_ID || 'color_mm16fjq9').trim(),
+        approval: (loaded.AUTH_APPROVAL_COLUMN_ID || 'color_mm167kpn').trim(),
+        email: (loaded.AUTH_EMAIL_COLUMN_ID || 'email').trim(),
+        phone: (loaded.AUTH_PHONE_COLUMN_ID || 'phone_mkn2my3a').trim(),
+        assistantToggle: (loaded.AUTH_TOGGLE_ASSISTANT_COLUMN_ID || 'boolean_mm16vydm').trim(),
+        calendarToggle: (loaded.AUTH_TOGGLE_CALENDAR_COLUMN_ID || 'boolean_mm1680j8').trim(),
+        clientsToggle: (loaded.AUTH_TOGGLE_CLIENTS_COLUMN_ID || 'boolean_mm16kwda').trim(),
+        teamToggle: (loaded.AUTH_TOGGLE_TEAM_COLUMN_ID || 'boolean_mm1699jc').trim(),
+        equipmentToggle: (loaded.AUTH_TOGGLE_EQUIPMENT_COLUMN_ID || 'boolean_mm16e9yf').trim(),
+        aiAskToggle: (loaded.AUTH_TOGGLE_AI_ASK_COLUMN_ID || 'boolean_mm16vdk4').trim(),
+        assignedClientsRelation: (loaded.AUTH_ASSIGNED_CLIENTS_COLUMN_ID || 'board_relation_mm172f5y').trim(),
+        assignedFacilitiesRelation: (loaded.AUTH_ASSIGNED_FACILITIES_COLUMN_ID || 'board_relation_mm17fgf6').trim(),
+      },
+      operations: {
+        shortOperationId: (loaded.OPERATIONS_SHORT_ID_COLUMN_ID || 'text_mknfh1x1').trim(),
+        performerRelation: (loaded.OPERATIONS_PERFORMER_RELATION_COLUMN_ID || 'board_relation_mm17kvck').trim(),
+        performerEmailMirror: (loaded.OPERATIONS_PERFORMER_EMAIL_MIRROR_COLUMN_ID || 'lookup_mm174zqb').trim(),
+        scheduleRelation: (loaded.OPERATIONS_SCHEDULE_RELATION_COLUMN_ID || 'connect_boards_mkn82w54').trim(),
+        calendarEventMirror: (loaded.OPERATIONS_CALENDAR_EVENT_MIRROR_COLUMN_ID || 'lookup_mm17kybq').trim(),
+        reportSequenceNumber: (loaded.OPERATIONS_REPORT_SEQUENCE_COLUMN_ID || 'numbers_mkmvq21y').trim(),
+        executionStatusCheck: (loaded.OPERATIONS_EXECUTION_STATUS_COLUMN_ID || 'color_mm17daw5').trim(),
+      },
+      schedule: {
+        operationIdRef: (loaded.SCHEDULE_OPERATION_ID_REF_COLUMN_ID || 'text_mknfnj59').trim(),
+        technicianRelation: (loaded.SCHEDULE_TECHNICIAN_RELATION_COLUMN_ID || 'board_relation_mm173tqk').trim(),
+        technicianEmailMirror: (loaded.SCHEDULE_TECHNICIAN_EMAIL_MIRROR_COLUMN_ID || 'lookup_mm17dqgp').trim(),
+        reportRelation: (loaded.SCHEDULE_REPORT_RELATION_COLUMN_ID || 'connect_boards_mkn1c2vc').trim(),
+        calendarSyncStatus: (loaded.SCHEDULE_CALENDAR_SYNC_STATUS_COLUMN_ID || 'color_mm17pp1n').trim(),
+        scheduleControlStatus: (loaded.SCHEDULE_CONTROL_STATUS_COLUMN_ID || 'color_mm179n1t').trim(),
+      },
+      reports: {
+        operationIdRef: (loaded.REPORTS_OPERATION_ID_REF_COLUMN_ID || 'text_mkmemh8m').trim(),
+        scheduleRelation: (loaded.REPORTS_SCHEDULE_RELATION_COLUMN_ID || 'connect_boards_1_mkmxq34v').trim(),
+        technicianEmailMirror: (loaded.REPORTS_TECHNICIAN_EMAIL_MIRROR_COLUMN_ID || 'lookup_mm171ygf').trim(),
+        flowStatus: (loaded.REPORTS_FLOW_STATUS_COLUMN_ID || 'status_12').trim(),
+        qaStatus: (loaded.REPORTS_QA_STATUS_COLUMN_ID || 'status6').trim(),
+        executedAt: (loaded.REPORTS_EXECUTED_AT_COLUMN_ID || 'date4').trim(),
+      },
+    },
+  })
 
   return {
     plugins: [
@@ -1111,6 +1570,16 @@ export default defineConfig(({ mode }) => {
     ],
   }
 })
+
+
+
+
+
+
+
+
+
+
 
 
 
