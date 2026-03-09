@@ -190,7 +190,7 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
       schedule_control_status: entry.controlStatus,
       calendar_sync_status: entry.calendarSyncStatus,
       calendar_event_id: entry.calendarEventRef,
-      report_item_id_ref: null,
+      report_item_id_ref: entry.reportItemIdRef,
       source: 'monday',
       metadata: {
         ...entry.metadata,
@@ -224,6 +224,7 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
     const assignmentRows = payload.assignments.map((entry) => ({
       operation_id: entry.operationId,
       user_email: entry.userEmail,
+      technician_name: entry.technicianName,
       role: entry.role,
       valid_from: null,
       valid_to: null,
@@ -372,5 +373,6 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
     throw new Error(safeMessage)
   }
 }
+
 
 

@@ -8,7 +8,17 @@ import { CalendarLinkPage } from './features/calendar/CalendarLinkPage'
 import { ClientsOverview } from './features/clients/ClientsOverview'
 import { EquipmentBoardPage } from './features/equipment/EquipmentBoardPage'
 import { TeamOverview } from './features/team/TeamOverview'
-import type { Client, FacilityRecord, RuntimeAssignmentSnapshot, RuntimeOperationSnapshot, RuntimeUserSnapshot } from './types/scheduling'
+import type {
+  Client,
+  FacilityRecord,
+  RuntimeAssignmentSnapshot,
+  RuntimeExceptionSnapshot,
+  RuntimeOperationSnapshot,
+  RuntimeOperationalProjections,
+  RuntimeReportSnapshot,
+  RuntimeScheduleEntrySnapshot,
+  RuntimeUserSnapshot,
+} from './types/scheduling'
 
 type ViewKey = 'assistant' | 'team' | 'clients' | 'calendar' | 'equipment'
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error'
@@ -29,6 +39,10 @@ interface MondaySnapshotResponse {
   operations: RuntimeOperationSnapshot[]
   assignments: RuntimeAssignmentSnapshot[]
   users: RuntimeUserSnapshot[]
+  scheduleEntries: RuntimeScheduleEntrySnapshot[]
+  reports: RuntimeReportSnapshot[]
+  exceptions: RuntimeExceptionSnapshot[]
+  projections: RuntimeOperationalProjections | null
   fetchedAt: string
   error?: {
     code?: string
@@ -113,6 +127,10 @@ function App() {
   const [operations, setOperations] = useState<RuntimeOperationSnapshot[]>([])
   const [assignments, setAssignments] = useState<RuntimeAssignmentSnapshot[]>([])
   const [users, setUsers] = useState<RuntimeUserSnapshot[]>([])
+  const [scheduleEntries, setScheduleEntries] = useState<RuntimeScheduleEntrySnapshot[]>([])
+  const [reports, setReports] = useState<RuntimeReportSnapshot[]>([])
+  const [exceptions, setExceptions] = useState<RuntimeExceptionSnapshot[]>([])
+  const [projections, setProjections] = useState<RuntimeOperationalProjections | null>(null)
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
@@ -153,6 +171,10 @@ function App() {
     setOperations([])
     setAssignments([])
     setUsers([])
+    setScheduleEntries([])
+    setReports([])
+    setExceptions([])
+    setProjections(null)
   }
 
   useEffect(() => {
@@ -233,6 +255,10 @@ function App() {
       setOperations([])
       setAssignments([])
       setUsers([])
+      setScheduleEntries([])
+      setReports([])
+      setExceptions([])
+      setProjections(null)
       return
     }
 
@@ -256,6 +282,10 @@ function App() {
           facilities: Array.isArray(payload.facilities) ? payload.facilities.length : null,
           operations: Array.isArray(payload.operations) ? payload.operations.length : null,
           assignments: Array.isArray(payload.assignments) ? payload.assignments.length : null,
+          scheduleEntries: Array.isArray(payload.scheduleEntries) ? payload.scheduleEntries.length : null,
+          reports: Array.isArray(payload.reports) ? payload.reports.length : null,
+          exceptions: Array.isArray(payload.exceptions) ? payload.exceptions.length : null,
+          hasProjections: Boolean(payload.projections),
           errorCode: payload.error?.code ?? null,
         })
 
@@ -271,6 +301,10 @@ function App() {
             setOperations([])
             setAssignments([])
             setUsers([])
+            setScheduleEntries([])
+            setReports([])
+            setExceptions([])
+            setProjections(null)
             return
           }
 
@@ -282,6 +316,10 @@ function App() {
             setOperations([])
             setAssignments([])
             setUsers([])
+            setScheduleEntries([])
+            setReports([])
+            setExceptions([])
+            setProjections(null)
             return
           }
 
@@ -295,6 +333,10 @@ function App() {
         setOperations(Array.isArray(payload.operations) ? payload.operations : [])
         setAssignments(Array.isArray(payload.assignments) ? payload.assignments : [])
         setUsers(Array.isArray(payload.users) ? payload.users : [])
+        setScheduleEntries(Array.isArray(payload.scheduleEntries) ? payload.scheduleEntries : [])
+        setReports(Array.isArray(payload.reports) ? payload.reports : [])
+        setExceptions(Array.isArray(payload.exceptions) ? payload.exceptions : [])
+        setProjections(payload.projections && typeof payload.projections === 'object' ? payload.projections : null)
         setLastSyncAt(payload.fetchedAt || new Date().toISOString())
         setSyncState('ok')
       } catch (error) {
@@ -306,6 +348,10 @@ function App() {
         setOperations([])
         setAssignments([])
         setUsers([])
+        setScheduleEntries([])
+        setReports([])
+        setExceptions([])
+        setProjections(null)
       }
     }
 
@@ -474,7 +520,20 @@ function App() {
 
         <section className="view-stage" aria-label={viewMeta[activeView].title}>
           {activeView === 'assistant' ? <OperationsAIAgentPage clientsData={clients} facilitiesData={facilities} /> : null}
-          {activeView === 'team' ? <TeamOverview facilitiesData={facilities} operationsData={operations} assignmentsData={assignments} usersData={users} isLoading={syncState === 'syncing' && facilities.length === 0 && operations.length === 0} errorMessage={syncState === 'error' ? syncError : null} /> : null}
+          {activeView === 'team' ? (
+            <TeamOverview
+              facilitiesData={facilities}
+              operationsData={operations}
+              assignmentsData={assignments}
+              usersData={users}
+              scheduleEntriesData={scheduleEntries}
+              reportsData={reports}
+              exceptionsData={exceptions}
+              projectionsData={projections}
+              isLoading={syncState === 'syncing' && operations.length === 0 && scheduleEntries.length === 0}
+              errorMessage={syncState === 'error' ? syncError : null}
+            />
+          ) : null}
           {activeView === 'clients' ? <ClientsOverview clientsData={clients} /> : null}
           {activeView === 'calendar' ? <CalendarLinkPage /> : null}
           {activeView === 'equipment' ? <EquipmentBoardPage facilitiesData={facilities} /> : null}
@@ -485,6 +544,12 @@ function App() {
 }
 
 export default App
+
+
+
+
+
+
 
 
 

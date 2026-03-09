@@ -34,6 +34,7 @@ interface TeamTaskRow {
   openTickets: number
   technicianId: string
   technicianName: string
+  technicianEmail: string | null
   clientName: string
   taskStatus: string
   requiredAction: string
@@ -174,6 +175,12 @@ function sortTaskRows(rows: TeamTaskRow[]) {
   })
 }
 
+function formatTechnicianDisplay(name: string, email: string | null) {
+  const normalizedEmail = normalizeText(email).toLowerCase()
+  if (normalizedEmail) return `${name} (${normalizedEmail})`
+  return name
+}
+
 function buildTechnicians(rows: TeamTaskRow[]) {
   const techniciansMap = new Map<string, TeamTechnicianRow>()
 
@@ -230,6 +237,7 @@ function buildTeamRowsFromFacilities(facilities: FacilityRecord[]) {
         openTickets,
         technicianId,
         technicianName,
+        technicianEmail: null as string | null,
         clientName: normalizeText(facility.name) || 'לקוח לא משויך',
         taskStatus: 'פתוח',
         requiredAction: priority === 'P1' ? 'טיפול דחוף תפעולי' : 'מעקב שוטף',
@@ -312,11 +320,20 @@ function buildTeamRowsFromOperations(
       const assignedEmail =
         normalizeText(operation.assignedTechnicianEmail).toLowerCase() ||
         normalizeText(assignmentByOperationId.get(operationId)?.userEmail).toLowerCase() ||
-        normalizeText(projection?.technicianEmail).toLowerCase()
+        normalizeText(projection?.technicianEmail).toLowerCase() ||
+        null
+
+      const operationSchedules = scheduleByOperationId.get(operationId) ?? []
+      const legacyScheduleTechnicianName =
+        normalizeText(operationSchedules.find((entry) => normalizeText(entry.legacyTechnicianDropdownValue))?.legacyTechnicianDropdownValue) || null
+      const hintedTechnicianName = normalizeText(operation.technicianNameHint) || null
+
+      const canonicalNameByEmail = assignedEmail ? userNameByEmail.get(assignedEmail) ?? null : null
+      const fallbackName = normalizeText(projection?.technicianName) || hintedTechnicianName || legacyScheduleTechnicianName || null
 
       const technicianName = assignedEmail
-        ? (userNameByEmail.get(assignedEmail) ?? (normalizeText(projection?.technicianName) || assignedEmail))
-        : normalizeText(projection?.technicianName) || 'ללא שיוך'
+        ? canonicalNameByEmail || fallbackName || assignedEmail
+        : fallbackName || 'ללא שיוך'
 
       const technicianId = toTechnicianId(assignedEmail || technicianName) || 'unassigned'
 
@@ -324,7 +341,6 @@ function buildTeamRowsFromOperations(
       const isWithoutTechnician =
         !assignedEmail || linkageState === 'unlinked' || linkageState === 'legacy_schedule_dropdown_fallback_pending'
 
-      const operationSchedules = scheduleByOperationId.get(operationId) ?? []
       const plannedDateIsos = operationSchedules
         .map((entry) => isoDateFromValue(entry.plannedDateTime || entry.plannedDate))
         .filter((value) => Boolean(value))
@@ -371,6 +387,7 @@ function buildTeamRowsFromOperations(
         `Execution status: ${taskStatus}`,
         `Client: ${clientName}`,
         `Technician: ${technicianName}`,
+        `Technician email: ${assignedEmail || 'לא זמין'}`,
         `Technician linkage: ${normalizeText(operation.technicianLinkageState) || 'לא זמין'}`,
         `Facility linkage: ${normalizeText(operation.facilityLinkageState) || 'לא זמין'}`,
         `Planned dates: ${plannedDateIsos.length ? plannedDateIsos.join(', ') : 'לא נקבע'}`,
@@ -386,6 +403,7 @@ function buildTeamRowsFromOperations(
         openTickets: 1,
         technicianId,
         technicianName,
+        technicianEmail: assignedEmail,
         clientName,
         taskStatus,
         requiredAction,
@@ -579,7 +597,7 @@ export function TeamOverview({
                     <strong>{task.title}</strong>
                   </p>
                   <p>לקוח: {task.clientName}</p>
-                  <p>טכנאי: {task.technicianName}</p>
+                  <p>טכנאי: {formatTechnicianDisplay(task.technicianName, task.technicianEmail)}</p>
                   <p>סטטוס משימה: {task.taskStatus}</p>
                   <p>פעולה נדרשת: {task.requiredAction}</p>
                 </li>
@@ -594,7 +612,7 @@ export function TeamOverview({
           <div className="panel operation-modal" onClick={(event) => event.stopPropagation()}>
             <h2>{selectedTask.title}</h2>
             <p>לקוח: {selectedTask.clientName}</p>
-            <p>טכנאי: {selectedTask.technicianName}</p>
+            <p>טכנאי: {formatTechnicianDisplay(selectedTask.technicianName, selectedTask.technicianEmail)}</p>
             <p>סטטוס משימה: {selectedTask.taskStatus}</p>
             <p>פעולה נדרשת: {selectedTask.requiredAction}</p>
             <p>תאריך מתוכנן: {selectedTask.plannedDateLabel}</p>
@@ -624,3 +642,7 @@ export function TeamOverview({
     </section>
   )
 }
+
+
+
+

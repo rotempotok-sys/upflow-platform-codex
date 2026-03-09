@@ -10,6 +10,7 @@
 export interface MondayAuthColumns {
   role: string
   approval: string
+  employeeStatus: string
   email: string
   phone: string
   assistantToggle: string
@@ -24,6 +25,9 @@ export interface MondayAuthColumns {
 
 export interface MondayOperationsColumns {
   shortOperationId: string
+  requestPurpose: string
+  businessStatus: string
+  clientRelation: string
   performerRelation: string
   performerEmailMirror: string
   scheduleRelation: string
@@ -32,10 +36,19 @@ export interface MondayOperationsColumns {
   executionStatusCheck: string
 }
 
+export interface MondayClientsColumns {
+  facilitiesRelation: string
+}
+
 export interface MondayScheduleColumns {
   operationIdRef: string
   technicianRelation: string
   technicianEmailMirror: string
+  technicianLegacyDropdown: string
+  taskType: string
+  plannedDate: string
+  calendarEventRef: string
+  scheduleStatus: string
   reportRelation: string
   calendarSyncStatus: string
   scheduleControlStatus: string
@@ -64,6 +77,7 @@ export interface MondayRelationKeys {
   scheduleTechnician: string
   scheduleReport: string
   reportsSchedule: string
+  clientsFacilities: string
 }
 
 export interface MondayMappingInventory {
@@ -71,6 +85,7 @@ export interface MondayMappingInventory {
   columns: {
     auth: MondayAuthColumns
     operations: MondayOperationsColumns
+    clients: MondayClientsColumns
     schedule: MondayScheduleColumns
     reports: MondayReportsColumns
   }
@@ -83,6 +98,7 @@ export interface MondayMappingInventoryOverrides {
   columns?: {
     auth?: Partial<MondayAuthColumns>
     operations?: Partial<MondayOperationsColumns>
+    clients?: Partial<MondayClientsColumns>
     schedule?: Partial<MondayScheduleColumns>
     reports?: Partial<MondayReportsColumns>
   }
@@ -101,6 +117,7 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
     auth: {
       role: 'color_mm16fjq9',
       approval: 'color_mm167kpn',
+      employeeStatus: 'status_mkmesmm9',
       email: 'email',
       phone: 'phone_mkn2my3a',
       assistantToggle: 'boolean_mm16vydm',
@@ -114,6 +131,9 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
     },
     operations: {
       shortOperationId: 'text_mknfh1x1',
+      requestPurpose: 'dropdown_mkmm9qzh',
+      businessStatus: 'color_mkngxc3y',
+      clientRelation: 'connect_boards_mkmmhxe7',
       performerRelation: 'board_relation_mm17kvck',
       performerEmailMirror: 'lookup_mm174zqb',
       scheduleRelation: 'connect_boards_mkn82w54',
@@ -121,10 +141,18 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
       reportSequenceNumber: 'numbers_mkmvq21y',
       executionStatusCheck: 'color_mm17daw5',
     },
+    clients: {
+      facilitiesRelation: 'board_relation_mm18w9fb',
+    },
     schedule: {
       operationIdRef: 'text_mknfnj59',
       technicianRelation: 'board_relation_mm173tqk',
       technicianEmailMirror: 'lookup_mm17dqgp',
+      technicianLegacyDropdown: 'dropdown_mkmmb2x',
+      taskType: 'dropdown_mkn9g57j',
+      plannedDate: 'date4',
+      calendarEventRef: 'integration',
+      scheduleStatus: 'status',
       reportRelation: 'connect_boards_mkn1c2vc',
       calendarSyncStatus: 'color_mm17pp1n',
       scheduleControlStatus: 'color_mm179n1t',
@@ -151,6 +179,7 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
     scheduleTechnician: 'board_relation_mm173tqk',
     scheduleReport: 'connect_boards_mkn1c2vc',
     reportsSchedule: 'connect_boards_1_mkmxq34v',
+    clientsFacilities: 'board_relation_mm18w9fb',
   },
 }
 
@@ -187,17 +216,29 @@ export function assertMondayMappingInventory(inventory: MondayMappingInventory):
   requireValue('columns.auth.email', inventory.columns.auth.email)
   requireValue('columns.auth.role', inventory.columns.auth.role)
   requireValue('columns.auth.approval', inventory.columns.auth.approval)
+  requireValue('columns.auth.employeeStatus', inventory.columns.auth.employeeStatus)
   requireValue('columns.auth.assignedClientsRelation', inventory.columns.auth.assignedClientsRelation)
   requireValue('columns.auth.assignedFacilitiesRelation', inventory.columns.auth.assignedFacilitiesRelation)
 
   requireValue('columns.operations.shortOperationId', inventory.columns.operations.shortOperationId)
+  requireValue('columns.operations.reportSequenceNumber', inventory.columns.operations.reportSequenceNumber)
+  requireValue('columns.operations.requestPurpose', inventory.columns.operations.requestPurpose)
+  requireValue('columns.operations.businessStatus', inventory.columns.operations.businessStatus)
+  requireValue('columns.operations.clientRelation', inventory.columns.operations.clientRelation)
   requireValue('columns.operations.performerRelation', inventory.columns.operations.performerRelation)
   requireValue('columns.operations.performerEmailMirror', inventory.columns.operations.performerEmailMirror)
   requireValue('columns.operations.scheduleRelation', inventory.columns.operations.scheduleRelation)
 
+  requireValue('columns.clients.facilitiesRelation', inventory.columns.clients.facilitiesRelation)
+
   requireValue('columns.schedule.operationIdRef', inventory.columns.schedule.operationIdRef)
   requireValue('columns.schedule.technicianRelation', inventory.columns.schedule.technicianRelation)
   requireValue('columns.schedule.technicianEmailMirror', inventory.columns.schedule.technicianEmailMirror)
+  requireValue('columns.schedule.technicianLegacyDropdown', inventory.columns.schedule.technicianLegacyDropdown)
+  requireValue('columns.schedule.taskType', inventory.columns.schedule.taskType)
+  requireValue('columns.schedule.plannedDate', inventory.columns.schedule.plannedDate)
+  requireValue('columns.schedule.calendarEventRef', inventory.columns.schedule.calendarEventRef)
+  requireValue('columns.schedule.scheduleStatus', inventory.columns.schedule.scheduleStatus)
   requireValue('columns.schedule.reportRelation', inventory.columns.schedule.reportRelation)
 
   requireValue('columns.reports.operationIdRef', inventory.columns.reports.operationIdRef)
@@ -244,8 +285,13 @@ export function assertMondayMappingInventory(inventory: MondayMappingInventory):
     throw new Error('MAPPING_CONFIG_AMBIGUOUS: reports schedule relation mismatch')
   }
 
+  if (inventory.relations.clientsFacilities !== inventory.columns.clients.facilitiesRelation) {
+    throw new Error('MAPPING_CONFIG_AMBIGUOUS: clients facilities relation mismatch')
+  }
+
   assertNoAmbiguousDuplicates([
     ['columns.operations.shortOperationId', inventory.columns.operations.shortOperationId],
+    ['columns.operations.reportSequenceNumber', inventory.columns.operations.reportSequenceNumber],
     ['columns.schedule.operationIdRef', inventory.columns.schedule.operationIdRef],
     ['columns.reports.operationIdRef', inventory.columns.reports.operationIdRef],
   ])
@@ -271,6 +317,10 @@ export function buildMondayMappingInventory(overrides?: MondayMappingInventoryOv
       operations: {
         ...DEFAULT_MONDAY_MAPPING_INVENTORY.columns.operations,
         ...(overrides?.columns?.operations ?? {}),
+      },
+      clients: {
+        ...DEFAULT_MONDAY_MAPPING_INVENTORY.columns.clients,
+        ...(overrides?.columns?.clients ?? {}),
       },
       schedule: {
         ...DEFAULT_MONDAY_MAPPING_INVENTORY.columns.schedule,
@@ -300,6 +350,7 @@ export function buildMondayMappingInventory(overrides?: MondayMappingInventoryOv
   merged.relations.scheduleTechnician = merged.columns.schedule.technicianRelation
   merged.relations.scheduleReport = merged.columns.schedule.reportRelation
   merged.relations.reportsSchedule = merged.columns.reports.scheduleRelation
+  merged.relations.clientsFacilities = merged.columns.clients.facilitiesRelation
 
   assertMondayMappingInventory(merged)
   return merged

@@ -47,6 +47,7 @@ interface RuntimeOperationRow {
 interface RuntimeAssignmentRow {
   operation_id: string
   user_email: string | null
+  technician_name: string | null
   role: string | null
 }
 
@@ -58,6 +59,7 @@ interface RuntimeScheduleEntryRow {
   schedule_control_status: string | null
   calendar_sync_status: string | null
   calendar_event_id: string | null
+  report_item_id_ref: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -119,6 +121,7 @@ export interface RuntimeOperationSnapshot {
   businessStatus: string | null
   operationStatus: string | null
   operationGroupStatus: string | null
+  technicianNameHint: string | null
   isOpen: boolean
   clientItemId: string | null
   facilityItemId: string | null
@@ -139,6 +142,7 @@ export interface RuntimeOperationSnapshot {
 export interface RuntimeAssignmentSnapshot {
   operationId: string
   userEmail: string | null
+  technicianName: string | null
   role: string | null
 }
 
@@ -153,6 +157,7 @@ export interface RuntimeScheduleEntrySnapshot {
   plannedDateTime: string | null
   plannedDateTimeSource: 'calendar' | 'monday_date' | 'missing'
   calendarEventRef: string | null
+  reportItemIdRef: string | null
   scheduleStatus: string | null
   calendarSyncStatus: string | null
   controlStatus: string | null
@@ -363,6 +368,7 @@ function mapOperation(row: RuntimeOperationRow): RuntimeOperationSnapshot {
     businessStatus: String(row.business_status ?? metadata.businessStatus ?? '').trim() || null,
     operationStatus: String(row.business_status ?? metadata.operationStatus ?? metadata.businessStatus ?? '').trim() || null,
     operationGroupStatus: String(row.operation_group_status ?? metadata.operationGroupStatus ?? '').trim() || null,
+    technicianNameHint: String(metadata.performerDisplay ?? '').trim() || null,
     isOpen: Boolean(metadata.isOpen === true),
     clientItemId: String(row.client_id ?? metadata.clientItemId ?? '').trim() || null,
     facilityItemId: String(row.facility_id ?? metadata.facilityItemId ?? '').trim() || null,
@@ -393,6 +399,7 @@ function mapAssignment(row: RuntimeAssignmentRow): RuntimeAssignmentSnapshot {
       String(row.user_email ?? '')
         .trim()
         .toLowerCase() || null,
+    technicianName: String(row.technician_name ?? '').trim() || null,
     role: String(row.role ?? '').trim() || null,
   }
 }
@@ -411,6 +418,7 @@ function mapScheduleEntry(row: RuntimeScheduleEntryRow): RuntimeScheduleEntrySna
     plannedDateTimeSource:
       (String(metadata.plannedDateTimeSource ?? '').trim() as 'calendar' | 'monday_date' | 'missing') || 'missing',
     calendarEventRef: String(row.calendar_event_id ?? '').trim() || null,
+    reportItemIdRef: String(row.report_item_id_ref ?? '').trim() || null,
     scheduleStatus: String(metadata.scheduleStatus ?? '').trim() || null,
     calendarSyncStatus: String(row.calendar_sync_status ?? '').trim() || null,
     controlStatus: String(row.schedule_control_status ?? '').trim() || null,
@@ -778,12 +786,12 @@ export async function readRuntimeClientsAndFacilities(client: any, knownSecrets:
 
   const assignmentsResult = await client
     .from('assignments')
-    .select('operation_id,user_email,role')
+    .select('operation_id,user_email,technician_name,role')
     .order('operation_id', { ascending: true })
 
   const scheduleEntriesResult = await client
     .from('schedule_entries')
-    .select('id,operation_id_ref,operation_id,technician_email,schedule_control_status,calendar_sync_status,calendar_event_id,metadata')
+    .select('id,operation_id_ref,operation_id,technician_email,schedule_control_status,calendar_sync_status,calendar_event_id,report_item_id_ref,metadata')
     .order('id', { ascending: true })
 
   if (scheduleEntriesResult.error) {
@@ -878,6 +886,8 @@ export async function readLatestRuntimeSyncRun(client: any, knownSecrets: string
     checkedAt: new Date().toISOString(),
   }
 }
+
+
 
 
 

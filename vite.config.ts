@@ -128,7 +128,7 @@ const MAX_USER_HISTORY = 300
 const CONTEXT_HISTORY_WINDOW = 5
 const MAX_LONG_TERM_ITEMS = 80
 const MAX_HIVE_HIGHLIGHTS = 80
-const RUNTIME_SYNC_SIGNATURE = 'runtime-sync-v7-operation-status-group-2026-03-09'
+const RUNTIME_SYNC_SIGNATURE = 'runtime-sync-v14-derived-status-fallback-2026-03-09'
 
 let memoryCache: MemoryStore | null = null
 
@@ -801,6 +801,7 @@ async function fetchBoard(token: string, boardId: string) {
           id
           title
           type
+          settings_str
         }
 
         items_page(limit: 500) {
@@ -1131,6 +1132,10 @@ function attachApiMiddleware(
             auth: usersSnapshot.diagnostics.payloadSamples?.auth ?? [],
             operationsClientRelation: operationsSnapshot.diagnostics.payloadSamples?.operationsClientRelation ?? [],
             clientsFacilitiesRelation: operationsSnapshot.diagnostics.payloadSamples?.clientsFacilitiesRelation ?? [],
+            scheduleCalendarEventRef: scheduleSnapshot.diagnostics.payloadSamples?.calendarEventRef ?? [],
+            scheduleCalendarSyncStatus: scheduleSnapshot.diagnostics.payloadSamples?.calendarSyncStatus ?? [],
+            scheduleControlStatus: scheduleSnapshot.diagnostics.payloadSamples?.scheduleControlStatus ?? [],
+            scheduleReportRelation: scheduleSnapshot.diagnostics.payloadSamples?.reportRelation ?? [],
           },
         }
 
@@ -1766,6 +1771,10 @@ export default defineConfig(({ mode }) => {
     ],
   }
 })
+
+
+
+
 
 
 

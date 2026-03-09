@@ -5,7 +5,8 @@
 
 ## 1) Apply baseline schema
 Run SQL from `supabase/schema/001_runtime_baseline.sql` in Supabase SQL Editor.
-Run SQL from `supabase/schema/002_runtime_assignments_unique.sql` as well.
+Run SQL from supabase/schema/002_runtime_assignments_unique.sql as well.
+Run SQL from supabase/schema/003_clients_facilities_relation_ids.sql as well.
 
 ## 2) Required server env vars
 - `SUPABASE_URL`

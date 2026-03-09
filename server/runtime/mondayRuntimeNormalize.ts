@@ -24,6 +24,8 @@ interface MondayBoardColumn {
   id: string
   title?: string | null
   type?: string | null
+  settings_str?: string | null
+  settings?: string | null
 }
 
 interface MondayBoard {
@@ -71,7 +73,8 @@ export interface RuntimeOperationSnapshotRow {
 
 export interface RuntimeOperationAssignmentSnapshotRow {
   operationId: string
-  userEmail: string
+  userEmail: string | null
+  technicianName: string | null
   role: 'performer'
   metadata: Record<string, unknown>
 }
@@ -79,6 +82,7 @@ export interface RuntimeScheduleEntrySnapshotRow {
   id: string
   operationIdRef: string
   operationId: string | null
+  reportItemIdRef: string | null
   taskType: string | null
   canonicalTechnicianEmail: string | null
   legacyTechnicianDropdownValue: string | null
@@ -136,6 +140,7 @@ export interface OperationsNormalizationDiagnostics {
     missingOperationId: number
     assignmentMissingEmail: number
     assignmentUserNotIncluded: number
+    assignmentResolvedByName: number
     duplicateOperation: number
     duplicateAssignment: number
     facilityResolvedUniqueClientFacilityLink: number
@@ -145,6 +150,7 @@ export interface OperationsNormalizationDiagnostics {
     technicianCanonicalScheduleEmail: number
     technicianCanonicalOperationsEmailFallback: number
     technicianLegacyDropdownResolved: number
+    technicianLegacyBoardDropdownResolved: number
     technicianLegacyFallbackPending: number
     technicianUnlinked: number
     openStateDerivedOpen: number
@@ -166,6 +172,16 @@ export interface ScheduleNormalizationDiagnostics {
     missingOperationIdRef: number
     unresolvedOperationLink: number
     resolvedOperationLink: number
+    autoLinkedByIdSuffixUnique: number
+    autoLinkSkippedAmbiguousSuffix: number
+    autoLinkSkippedTechnicianMismatch: number
+    missingCalendarEventRef: number
+    missingCalendarSyncStatus: number
+    missingScheduleControlStatus: number
+    missingReportItemIdRef: number
+    ambiguousReportItemRef: number
+    derivedCalendarSyncStatus: number
+    derivedScheduleControlStatus: number
     technicianCanonicalEmail: number
     technicianLegacyResolved: number
     technicianUnresolved: number
@@ -173,6 +189,12 @@ export interface ScheduleNormalizationDiagnostics {
     plannedDateTimeFromMondayDate: number
     plannedDateTimeMissing: number
     duplicateScheduleItem: number
+  }
+  payloadSamples?: {
+    calendarEventRef: Array<Record<string, unknown>>
+    calendarSyncStatus: Array<Record<string, unknown>>
+    scheduleControlStatus: Array<Record<string, unknown>>
+    reportRelation: Array<Record<string, unknown>>
   }
 }
 
@@ -186,6 +208,8 @@ export interface ReportsNormalizationDiagnostics {
     missingOperationIdRef: number
     unresolvedOperationLink: number
     resolvedOperationLink: number
+    autoLinkedByIdSuffixUnique: number
+    autoLinkSkippedAmbiguousSuffix: number
     unresolvedScheduleLink: number
     duplicateReportId: number
   }
@@ -222,6 +246,108 @@ function normalizedEmail(value: unknown) {
   return email
 }
 
+function buildOperationRefCandidates(value: unknown): string[] {
+  const raw = normalizedText(value)
+  if (!raw) return []
+
+  const out = new Set<string>()
+  out.add(raw)
+
+  const digitsOnly = raw.replace(/\\D+/g, '')
+  if (digitsOnly) {
+    out.add(digitsOnly)
+    const noLeadingZeros = digitsOnly.replace(/^0+/, '')
+    if (noLeadingZeros) out.add(noLeadingZeros)
+  }
+
+  return Array.from(out)
+}
+
+function buildOperationIdSuffixCandidates(operationId: string): string[] {
+  const digits = normalizedText(operationId).replace(/\\D+/g, '')
+  if (!digits) return []
+
+  const out = new Set<string>()
+  for (const length of [3, 4]) {
+    if (digits.length >= length) out.add(digits.slice(-length))
+  }
+
+  return Array.from(out)
+}
+
+function resolveOperationIdByRef(input: {
+  operationIdRef: string
+  canonicalTechnicianEmail?: string | null
+  operationIdByRef: Map<string, string>
+  operationIdsBySuffix: Map<string, string[]>
+  operationsById: Map<string, RuntimeOperationSnapshotRow>
+}): {
+  operationId: string | null
+  autoLinkedByIdSuffixUnique: boolean
+  skippedAmbiguousSuffix: boolean
+  skippedTechnicianMismatch: boolean
+} {
+  const { operationIdRef, canonicalTechnicianEmail, operationIdByRef, operationIdsBySuffix, operationsById } = input
+
+  for (const refCandidate of buildOperationRefCandidates(operationIdRef)) {
+    const resolved = operationIdByRef.get(refCandidate)
+    if (resolved && resolved.trim()) {
+      return {
+        operationId: resolved,
+        autoLinkedByIdSuffixUnique: false,
+        skippedAmbiguousSuffix: false,
+        skippedTechnicianMismatch: false,
+      }
+    }
+  }
+
+  const digitsCandidates = buildOperationRefCandidates(operationIdRef)
+    .map((entry) => normalizedText(entry).replace(/\\D+/g, '').replace(/^0+/, ''))
+    .filter((entry) => entry.length >= 3 && entry.length <= 4)
+
+  let foundAmbiguousSuffix = false
+  for (const digitsRef of digitsCandidates) {
+    const suffixMatches = operationIdsBySuffix.get(digitsRef) ?? []
+    if (suffixMatches.length === 1) {
+      const candidate = suffixMatches[0]
+      if (!canonicalTechnicianEmail) {
+        return {
+          operationId: candidate,
+          autoLinkedByIdSuffixUnique: true,
+          skippedAmbiguousSuffix: false,
+          skippedTechnicianMismatch: false,
+        }
+      }
+
+      const operationRow = operationsById.get(candidate)
+      const operationEmail = normalizedEmail(operationRow?.assignedTechnicianEmail ?? '')
+      if (!operationEmail || operationEmail === canonicalTechnicianEmail) {
+        return {
+          operationId: candidate,
+          autoLinkedByIdSuffixUnique: true,
+          skippedAmbiguousSuffix: false,
+          skippedTechnicianMismatch: false,
+        }
+      }
+
+      return {
+        operationId: null,
+        autoLinkedByIdSuffixUnique: false,
+        skippedAmbiguousSuffix: false,
+        skippedTechnicianMismatch: true,
+      }
+    }
+
+    if (suffixMatches.length > 1) foundAmbiguousSuffix = true
+  }
+
+  return {
+    operationId: null,
+    autoLinkedByIdSuffixUnique: false,
+    skippedAmbiguousSuffix: foundAmbiguousSuffix,
+    skippedTechnicianMismatch: false,
+  }
+}
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
@@ -286,12 +412,83 @@ function getColumnText(item: MondayItem, columnId: string) {
   const text = normalizedText(column.text)
   if (text) return text
 
+  const valueText = extractTextValueFromRaw(column.value)
+  if (valueText) return valueText
+
   return ''
 }
 
 function getColumnRawValue(item: MondayItem, columnId: string) {
   const column = getColumn(item, columnId)
   return column?.value ?? null
+}
+
+function tryParseJson(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw
+  const text = raw.trim()
+  if (!text) return raw
+  if (!((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']')))) return raw
+  try {
+    return JSON.parse(text)
+  } catch {
+    return raw
+  }
+}
+
+function buildStatusLabelsByColumn(board: MondayBoard): Map<string, Map<string, string>> {
+  const byColumn = new Map<string, Map<string, string>>()
+
+  for (const column of board.columns ?? []) {
+    const raw = normalizedText((column.settings_str ?? column.settings ?? '').toString())
+    if (!raw) continue
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      continue
+    }
+
+    const labels = (parsed as Record<string, unknown>)?.labels
+    if (!labels || typeof labels !== 'object') continue
+
+    const mapped = new Map<string, string>()
+    for (const [idx, label] of Object.entries(labels as Record<string, unknown>)) {
+      const key = normalizedText(idx)
+      const value = normalizedText(label)
+      if (key && value) mapped.set(key, value)
+    }
+
+    if (mapped.size > 0) byColumn.set(String(column.id), mapped)
+  }
+
+  return byColumn
+}
+
+function extractStatusIndexFromRaw(raw: unknown): string {
+  const parsed = tryParseJson(raw)
+  if (!parsed || typeof parsed !== 'object') return ''
+  const obj = parsed as Record<string, unknown>
+  const direct = normalizedText(obj.index)
+  if (direct) return direct
+  const nested = obj.label && typeof obj.label === 'object' ? normalizedText((obj.label as Record<string, unknown>).index) : ''
+  if (nested) return nested
+  return ''
+}
+
+function resolveStatusText(item: MondayItem, columnId: string, statusLabelsByColumn: Map<string, Map<string, string>>): string {
+  const directText = getColumnText(item, columnId)
+  if (directText) return directText
+
+  const raw = getColumnRawValue(item, columnId)
+  const index = extractStatusIndexFromRaw(raw)
+  if (index) {
+    const labels = statusLabelsByColumn.get(columnId)
+    const label = labels?.get(index)
+    if (label) return label
+  }
+
+  return extractTextValueFromRaw(raw)
 }
 
 function extractRelationIds(raw: unknown): string[] {
@@ -426,6 +623,102 @@ function normalizeOperationCategory(requestPurposeRaw: string): string {
 
   return 'General'
 }
+function extractTextValueFromRaw(raw: unknown): string {
+  if (raw == null) return ''
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return ''
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        return extractTextValueFromRaw(JSON.parse(trimmed))
+      } catch {
+        return trimmed
+      }
+    }
+    return trimmed
+  }
+
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const candidate = extractTextValueFromRaw(entry)
+      if (candidate) return candidate
+    }
+    return ''
+  }
+
+  if (typeof raw !== 'object') return normalizedText(raw)
+
+  const obj = raw as Record<string, unknown>
+  const keys = ['display_value', 'label', 'text', 'name', 'title', 'status', 'value']
+  for (const key of keys) {
+    const candidate = extractTextValueFromRaw(obj[key])
+    if (candidate) return candidate
+  }
+
+  return ''
+}
+
+function extractCalendarEventRef(raw: unknown): string | null {
+  if (raw == null) return null
+
+  if (typeof raw === 'string') {
+    const text = normalizedText(raw)
+    if (!text) return null
+    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+      try {
+        return extractCalendarEventRef(JSON.parse(text))
+      } catch {
+        return text
+      }
+    }
+
+    const eventPathMatch = /\/events\/([^/?]+)/i.exec(text)
+    if (eventPathMatch?.[1]) return normalizedText(eventPathMatch[1]) || text
+
+    return text
+  }
+
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const candidate = extractCalendarEventRef(entry)
+      if (candidate) return candidate
+    }
+    return null
+  }
+
+  if (typeof raw !== 'object') return normalizedText(raw) || null
+
+  const obj = raw as Record<string, unknown>
+  const primaryKeys = ['event_id', 'eventId', 'google_event_id', 'googleEventId', 'calendar_event_id', 'calendarEventId', 'integration_id', 'external_id', 'icalUID']
+  for (const key of primaryKeys) {
+    const candidate = extractCalendarEventRef(obj[key])
+    if (candidate) return candidate
+  }
+
+  for (const [key, value] of Object.entries(obj)) {
+    const normalizedKey = key.toLowerCase()
+    if (normalizedKey.includes('event') && normalizedKey.includes('id')) {
+      const candidate = extractCalendarEventRef(value)
+      if (candidate) return candidate
+    }
+  }
+
+  for (const [key, value] of Object.entries(obj)) {
+    const normalizedKey = key.toLowerCase()
+    if (normalizedKey === 'id' || normalizedKey.endsWith('_id') || normalizedKey.endsWith('id')) {
+      const candidate = extractCalendarEventRef(value)
+      if (candidate && !/^\d{4,}$/.test(candidate)) return candidate
+    }
+  }
+
+  const fallbackKeys = ['event', 'data', 'value', 'payload', 'reference', 'ref', 'calendar']
+  for (const key of fallbackKeys) {
+    const candidate = extractCalendarEventRef(obj[key])
+    if (candidate) return candidate
+  }
+
+  return null
+}
 function normalizePlannedDate(raw: string): string | null {
   const value = normalizedText(raw)
   if (!value) return null
@@ -478,10 +771,12 @@ function extractDateTimeCandidate(raw: unknown): string | null {
 function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory): {
   plannedDate: string | null
   plannedDateTime: string | null
+  calendarEventRef: string | null
   source: 'calendar' | 'monday_date' | 'missing'
 } {
   const calendarText = getColumnText(item, mapping.columns.schedule.calendarEventRef)
   const calendarRaw = getColumnRawValue(item, mapping.columns.schedule.calendarEventRef)
+  const calendarEventRef = extractCalendarEventRef(calendarRaw) ?? extractCalendarEventRef(calendarText)
 
   let plannedDateTime = extractDateTimeCandidate(calendarText)
   if (!plannedDateTime) {
@@ -495,12 +790,12 @@ function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory
     }
   }
 
-  if (plannedDateTime) return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, source: 'calendar' }
+  if (plannedDateTime) return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, calendarEventRef, source: 'calendar' }
 
   const mondayDate = normalizePlannedDate(getColumnText(item, mapping.columns.schedule.plannedDate))
-  if (mondayDate) return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, source: 'monday_date' }
+  if (mondayDate) return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, calendarEventRef, source: 'monday_date' }
 
-  return { plannedDate: null, plannedDateTime: null, source: 'missing' }
+  return { plannedDate: null, plannedDateTime: null, calendarEventRef, source: 'missing' }
 }
 
 function normalizeExecutedAt(raw: string): string | null {
@@ -719,6 +1014,7 @@ export function normalizeOperationsFromBoard(input: {
   operationsBoard: MondayBoard
   clientsBoard: MondayBoard
   scheduleBoard: MondayBoard
+  technicianFallbackBoard?: MondayBoard | null
   mapping: MondayMappingInventory
   runtimeUsers: RuntimeUserSnapshotRow[]
 }): {
@@ -726,10 +1022,11 @@ export function normalizeOperationsFromBoard(input: {
   assignments: RuntimeOperationAssignmentSnapshotRow[]
   diagnostics: OperationsNormalizationDiagnostics
 } {
-  const { operationsBoard, clientsBoard, scheduleBoard, mapping, runtimeUsers } = input
+  const { operationsBoard, clientsBoard, scheduleBoard, technicianFallbackBoard, mapping, runtimeUsers } = input
 
   assertBoardHasColumns(operationsBoard, 'operations board', [
     mapping.columns.operations.shortOperationId,
+    mapping.columns.operations.reportSequenceNumber,
     mapping.columns.operations.requestPurpose,
     mapping.columns.operations.businessStatus,
     mapping.columns.operations.clientRelation,
@@ -744,10 +1041,13 @@ export function normalizeOperationsFromBoard(input: {
   const operations: RuntimeOperationSnapshotRow[] = []
   const assignments: RuntimeOperationAssignmentSnapshotRow[] = []
 
+
   const runtimeUserByDisplayName = new Map<string, string>()
+  const runtimeUserNameByEmail = new Map<string, string>()
   const runtimeUserEmails = new Set<string>()
   for (const row of runtimeUsers) {
     runtimeUserEmails.add(row.email)
+    runtimeUserNameByEmail.set(row.email, normalizedText(row.displayName) || row.email)
     const display = normalizedText(row.displayName).toLowerCase()
     if (display && !runtimeUserByDisplayName.has(display)) {
       runtimeUserByDisplayName.set(display, row.email)
@@ -755,10 +1055,23 @@ export function normalizeOperationsFromBoard(input: {
   }
 
   const facilitiesByClient = buildFacilityMapByClientFromClientsBoard(clientsBoard, mapping)
+  const fallbackLegacyLabelsByOperationRef = new Map<string, Set<string>>()
+  for (const item of technicianFallbackBoard?.items_page?.items ?? []) {
+    const operationIdRef = normalizedText(getColumnText(item, mapping.columns.schedule.operationIdRef))
+    if (!operationIdRef) continue
+    const legacyLabel = normalizedText(getColumnText(item, mapping.columns.schedule.technicianLegacyDropdown)).toLowerCase()
+    if (!legacyLabel) continue
+    for (const refCandidate of buildOperationRefCandidates(operationIdRef)) {
+      const current = fallbackLegacyLabelsByOperationRef.get(refCandidate) ?? new Set<string>()
+      current.add(legacyLabel)
+      fallbackLegacyLabelsByOperationRef.set(refCandidate, current)
+    }
+  }
 
   let missingOperationId = 0
   let assignmentMissingEmail = 0
   let assignmentUserNotIncluded = 0
+  let assignmentResolvedByName = 0
   let facilityResolvedUniqueClientFacilityLink = 0
   let facilityAmbiguousClientFacilityLink = 0
   let facilityMissingClientFacilityLink = 0
@@ -766,6 +1079,7 @@ export function normalizeOperationsFromBoard(input: {
   let technicianCanonicalScheduleEmail = 0
   let technicianCanonicalOperationsEmailFallback = 0
   let technicianLegacyDropdownResolved = 0
+  let technicianLegacyBoardDropdownResolved = 0
   let technicianLegacyFallbackPending = 0
   let technicianUnlinked = 0
   let openStateDerivedOpen = 0
@@ -784,8 +1098,16 @@ export function normalizeOperationsFromBoard(input: {
     const operationStatus = businessStatus
     const executionStatus = normalizedText(getColumnText(item, mapping.columns.operations.executionStatusCheck)) || null
 
-    const shortOperationId = normalizedText(getColumnText(item, mapping.columns.operations.shortOperationId)) || null
-    const scheduleContextsByOperationId = [ ...(scheduleIndexes.byOperationId.get(operationId) ?? []), ...(shortOperationId ? scheduleIndexes.byOperationId.get(shortOperationId) ?? [] : []) ]
+    const reportSequenceNumber = normalizedText(getColumnText(item, mapping.columns.operations.reportSequenceNumber)) || null
+    const legacyShortOperationId = normalizedText(getColumnText(item, mapping.columns.operations.shortOperationId)) || null
+    const shortOperationId = reportSequenceNumber || legacyShortOperationId || null
+    const scheduleContextMapByRef = new Map<string, ScheduleEntryContext>()
+    for (const refCandidate of [...buildOperationRefCandidates(operationId), ...buildOperationRefCandidates(shortOperationId)]) {
+      for (const entry of scheduleIndexes.byOperationId.get(refCandidate) ?? []) {
+        scheduleContextMapByRef.set(entry.scheduleItemId, entry)
+      }
+    }
+    const scheduleContextsByOperationId = Array.from(scheduleContextMapByRef.values())
     const linkedScheduleIds = getColumnRelationIds(item, mapping.columns.operations.scheduleRelation)
     const linkedByRelation = linkedScheduleIds
       .map((scheduleId) => scheduleIndexes.byScheduleItemId.get(scheduleId))
@@ -855,14 +1177,26 @@ export function normalizeOperationsFromBoard(input: {
       const legacyLabels = new Set(
         linkedScheduleContexts.map((entry) => normalizedText(entry.technicianLegacyLabel).toLowerCase()).filter((value) => Boolean(value)),
       )
+      for (const refCandidate of [...buildOperationRefCandidates(operationId), ...buildOperationRefCandidates(shortOperationId)]) {
+        for (const label of fallbackLegacyLabelsByOperationRef.get(refCandidate) ?? new Set<string>()) legacyLabels.add(label)
+      }
 
       if (legacyLabels.size === 1) {
         const legacyLabel = Array.from(legacyLabels)[0]
         const resolvedEmail = runtimeUserByDisplayName.get(legacyLabel) ?? null
         if (resolvedEmail) {
           assignedEmail = resolvedEmail
-          technicianLinkageState = 'legacy_schedule_dropdown_resolved'
-          technicianLegacyDropdownResolved += 1
+          if (
+            linkedScheduleContexts.some(
+              (entry) => normalizedText(entry.technicianLegacyLabel).toLowerCase() === legacyLabel,
+            )
+          ) {
+            technicianLinkageState = 'legacy_schedule_dropdown_resolved'
+            technicianLegacyDropdownResolved += 1
+          } else {
+            technicianLinkageState = 'legacy_schedule_dropdown_resolved'
+            technicianLegacyBoardDropdownResolved += 1
+          }
         } else {
           technicianLinkageState = 'legacy_schedule_dropdown_fallback_pending'
           technicianLegacyFallbackPending += 1
@@ -908,6 +1242,8 @@ export function normalizeOperationsFromBoard(input: {
         },
         requestPurposeRaw,
         operationCategory,
+        reportSequenceNumber,
+        legacyShortOperationId,
         clientRelationIds,
         clientItemId,
         facilityItemId,
@@ -922,19 +1258,43 @@ export function normalizeOperationsFromBoard(input: {
       },
     })
 
-    if (!assignedEmail) {
+    const assignmentNameCandidates = [
+      normalizedText(performerDisplay),
+      ...linkedScheduleContexts.map((entry) => normalizedText(entry.technicianLegacyLabel)),
+    ].filter((value) => Boolean(value))
+
+    let assignmentEmail: string | null = assignedEmail
+    if (!assignmentEmail) {
+      const normalizedNameCandidates = Array.from(new Set(assignmentNameCandidates.map((value) => value.toLowerCase())))
+      for (const candidate of normalizedNameCandidates) {
+        const resolvedByName = runtimeUserByDisplayName.get(candidate) ?? null
+        if (resolvedByName) {
+          assignmentEmail = resolvedByName
+          assignmentResolvedByName += 1
+          break
+        }
+      }
+    }
+
+    if (!assignmentEmail) {
       assignmentMissingEmail += 1
       continue
     }
 
-    if (!runtimeUserEmails.has(assignedEmail)) {
+    if (!runtimeUserEmails.has(assignmentEmail)) {
       assignmentUserNotIncluded += 1
       continue
     }
 
+    const assignmentTechnicianName =
+      runtimeUserNameByEmail.get(assignmentEmail) ??
+      assignmentNameCandidates[0] ??
+      null
+
     assignments.push({
       operationId,
-      userEmail: assignedEmail,
+      userEmail: assignmentEmail,
+      technicianName: assignmentTechnicianName,
       role: 'performer',
       metadata: {
         mondayBoardId: operationsBoard.id,
@@ -975,6 +1335,7 @@ export function normalizeOperationsFromBoard(input: {
         missingOperationId,
         assignmentMissingEmail,
         assignmentUserNotIncluded,
+        assignmentResolvedByName,
         duplicateOperation,
         duplicateAssignment,
         facilityMissingClientFacilityLink,
@@ -985,6 +1346,7 @@ export function normalizeOperationsFromBoard(input: {
         technicianCanonicalScheduleEmail,
         technicianCanonicalOperationsEmailFallback,
         technicianLegacyDropdownResolved,
+        technicianLegacyBoardDropdownResolved,
         technicianLegacyFallbackPending,
         technicianUnlinked,
         openStateDerivedOpen,
@@ -1031,17 +1393,26 @@ export function normalizeScheduleEntriesFromBoard(input: {
     mapping.columns.schedule.scheduleControlStatus,
   ])
 
-  const operationIds = new Set(operations.map((entry) => entry.id))
-  const operationIdsByShort = new Map<string, string>()
+
+
+  const statusLabelsByColumn = buildStatusLabelsByColumn(scheduleBoard)
+  const operationIdByRef = new Map<string, string>()
+  const operationIdsBySuffix = new Map<string, string[]>()
+  const operationsById = new Map<string, RuntimeOperationSnapshotRow>()
   for (const row of operations) {
-    const shortId = normalizedText(row.shortOperationId)
-    if (!shortId) continue
-    if (!operationIdsByShort.has(shortId)) {
-      operationIdsByShort.set(shortId, row.id)
-    } else {
-      operationIdsByShort.set(shortId, '')
+    operationsById.set(row.id, row)
+    for (const suffix of buildOperationIdSuffixCandidates(row.id)) {
+      const existing = operationIdsBySuffix.get(suffix) ?? []
+      existing.push(row.id)
+      operationIdsBySuffix.set(suffix, existing)
+    }
+
+    for (const refCandidate of [...buildOperationRefCandidates(row.id), ...buildOperationRefCandidates(row.shortOperationId)]) {
+      if (!operationIdByRef.has(refCandidate)) operationIdByRef.set(refCandidate, row.id)
+      else if (operationIdByRef.get(refCandidate) !== row.id) operationIdByRef.set(refCandidate, '')
     }
   }
+
 
   const runtimeUserByDisplayName = new Map<string, string>()
   for (const row of runtimeUsers) {
@@ -1056,12 +1427,22 @@ export function normalizeScheduleEntriesFromBoard(input: {
   let missingOperationIdRef = 0
   let unresolvedOperationLink = 0
   let resolvedOperationLink = 0
+  let autoLinkedByIdSuffixUnique = 0
+  let autoLinkSkippedAmbiguousSuffix = 0
+  let autoLinkSkippedTechnicianMismatch = 0
   let technicianCanonicalEmail = 0
   let technicianLegacyResolved = 0
   let technicianUnresolved = 0
   let plannedDateTimeFromCalendar = 0
   let plannedDateTimeFromMondayDate = 0
   let plannedDateTimeMissing = 0
+  let missingCalendarEventRef = 0
+  let missingCalendarSyncStatus = 0
+  let missingScheduleControlStatus = 0
+  let missingReportItemIdRef = 0
+  let ambiguousReportItemRef = 0
+  let derivedCalendarSyncStatus = 0
+  let derivedScheduleControlStatus = 0
 
   for (const item of scheduleBoard.items_page?.items ?? []) {
     const scheduleItemId = normalizedText(item.id)
@@ -1076,30 +1457,53 @@ export function normalizeScheduleEntriesFromBoard(input: {
       continue
     }
 
-    let operationId: string | null = null
-    if (operationIds.has(operationIdRef)) {
-      operationId = operationIdRef
-    } else {
-      const fromShortId = operationIdsByShort.get(operationIdRef)
-      if (fromShortId && fromShortId.trim()) {
-        operationId = fromShortId
-      }
-    }
+    const canonicalTechnicianEmail = normalizedEmail(getColumnText(item, mapping.columns.schedule.technicianEmailMirror))
+    const operationResolution = resolveOperationIdByRef({
+      operationIdRef,
+      canonicalTechnicianEmail,
+      operationIdByRef,
+      operationIdsBySuffix,
+      operationsById,
+    })
+    const operationId = operationResolution.operationId
+    if (operationResolution.autoLinkedByIdSuffixUnique) autoLinkedByIdSuffixUnique += 1
+    if (operationResolution.skippedAmbiguousSuffix) autoLinkSkippedAmbiguousSuffix += 1
+    if (operationResolution.skippedTechnicianMismatch) autoLinkSkippedTechnicianMismatch += 1
 
     if (operationId) resolvedOperationLink += 1
     else unresolvedOperationLink += 1
 
-    const canonicalTechnicianEmail = normalizedEmail(getColumnText(item, mapping.columns.schedule.technicianEmailMirror))
     const legacyTechnicianDropdownValue = normalizedText(getColumnText(item, mapping.columns.schedule.technicianLegacyDropdown)) || null
     const taskType = normalizedText(getColumnText(item, mapping.columns.schedule.taskType)) || null
     const plannedDateDerived = derivePlannedDateTime(item, mapping)
     const plannedDate = plannedDateDerived.plannedDate
     const plannedDateTime = plannedDateDerived.plannedDateTime
     const plannedDateTimeSource = plannedDateDerived.source
-    const calendarEventRef = normalizedText(getColumnText(item, mapping.columns.schedule.calendarEventRef)) || null
-    const scheduleStatus = normalizedText(getColumnText(item, mapping.columns.schedule.scheduleStatus)) || null
-    const calendarSyncStatus = normalizedText(getColumnText(item, mapping.columns.schedule.calendarSyncStatus)) || null
-    const controlStatus = normalizedText(getColumnText(item, mapping.columns.schedule.scheduleControlStatus)) || null
+    const calendarEventRef = plannedDateDerived.calendarEventRef
+    const scheduleStatus = resolveStatusText(item, mapping.columns.schedule.scheduleStatus, statusLabelsByColumn) || null
+    const rawCalendarSyncStatus = resolveStatusText(item, mapping.columns.schedule.calendarSyncStatus, statusLabelsByColumn) || null
+    const rawControlStatus = resolveStatusText(item, mapping.columns.schedule.scheduleControlStatus, statusLabelsByColumn) || null
+    const reportRefs = getColumnRelationIds(item, mapping.columns.schedule.reportRelation)
+    const reportItemIdRef = reportRefs.length === 1 ? reportRefs[0] : null
+
+
+    let calendarSyncStatus = rawCalendarSyncStatus
+    if (!calendarSyncStatus) {
+      calendarSyncStatus = calendarEventRef ? 'Created' : 'Missing Link'
+      derivedCalendarSyncStatus += 1
+    }
+
+    let controlStatus = rawControlStatus
+    if (!controlStatus) {
+      controlStatus = reportItemIdRef ? 'Linked to Report' : operationId ? 'Scheduled' : 'Needs Operation Link'
+      derivedScheduleControlStatus += 1
+    }
+
+    if (!calendarEventRef) missingCalendarEventRef += 1
+    if (!rawCalendarSyncStatus) missingCalendarSyncStatus += 1
+    if (!rawControlStatus) missingScheduleControlStatus += 1
+    if (!reportItemIdRef) missingReportItemIdRef += 1
+    if (reportRefs.length > 1) ambiguousReportItemRef += 1
 
     if (plannedDateTimeSource === 'calendar') plannedDateTimeFromCalendar += 1
     else if (plannedDateTimeSource === 'monday_date') plannedDateTimeFromMondayDate += 1
@@ -1132,6 +1536,7 @@ export function normalizeScheduleEntriesFromBoard(input: {
       id: scheduleItemId,
       operationIdRef,
       operationId,
+      reportItemIdRef,
       taskType,
       canonicalTechnicianEmail: resolvedTechnicianEmail,
       legacyTechnicianDropdownValue,
@@ -1149,6 +1554,9 @@ export function normalizeScheduleEntriesFromBoard(input: {
         mondayItemId: scheduleItemId,
         operationIdRef,
         unresolvedOperationLink: !operationId,
+        reportRelationCount: reportRefs.length,
+        rawCalendarSyncStatus,
+        rawControlStatus,
       },
     })
   }
@@ -1174,6 +1582,16 @@ export function normalizeScheduleEntriesFromBoard(input: {
         missingOperationIdRef,
         unresolvedOperationLink,
         resolvedOperationLink,
+        autoLinkedByIdSuffixUnique,
+        autoLinkSkippedAmbiguousSuffix,
+        autoLinkSkippedTechnicianMismatch,
+        missingCalendarEventRef,
+        missingCalendarSyncStatus,
+        missingScheduleControlStatus,
+        missingReportItemIdRef,
+        ambiguousReportItemRef,
+        derivedCalendarSyncStatus,
+        derivedScheduleControlStatus,
         technicianCanonicalEmail,
         technicianLegacyResolved,
         technicianUnresolved,
@@ -1181,6 +1599,12 @@ export function normalizeScheduleEntriesFromBoard(input: {
         plannedDateTimeFromMondayDate,
         plannedDateTimeMissing,
         duplicateScheduleItem,
+      },
+      payloadSamples: {
+        calendarEventRef: sampleColumnPayload(scheduleBoard.items_page?.items ?? [], mapping.columns.schedule.calendarEventRef),
+        calendarSyncStatus: sampleColumnPayload(scheduleBoard.items_page?.items ?? [], mapping.columns.schedule.calendarSyncStatus),
+        scheduleControlStatus: sampleColumnPayload(scheduleBoard.items_page?.items ?? [], mapping.columns.schedule.scheduleControlStatus),
+        reportRelation: sampleColumnPayload(scheduleBoard.items_page?.items ?? [], mapping.columns.schedule.reportRelation),
       },
     },
   }
@@ -1211,13 +1635,22 @@ export function normalizeReportsFromBoard(input: {
     mapping.columns.reports.executedAt,
   ])
 
-  const operationIds = new Set(operations.map((entry) => entry.id))
-  const operationIdsByShort = new Map<string, string>()
+
+  const operationIdByRef = new Map<string, string>()
+  const operationIdsBySuffix = new Map<string, string[]>()
+  const operationsById = new Map<string, RuntimeOperationSnapshotRow>()
   for (const row of operations) {
-    const shortId = normalizedText(row.shortOperationId)
-    if (!shortId) continue
-    if (!operationIdsByShort.has(shortId)) operationIdsByShort.set(shortId, row.id)
-    else operationIdsByShort.set(shortId, '')
+    operationsById.set(row.id, row)
+    for (const suffix of buildOperationIdSuffixCandidates(row.id)) {
+      const existing = operationIdsBySuffix.get(suffix) ?? []
+      existing.push(row.id)
+      operationIdsBySuffix.set(suffix, existing)
+    }
+
+    for (const refCandidate of [...buildOperationRefCandidates(row.id), ...buildOperationRefCandidates(row.shortOperationId)]) {
+      if (!operationIdByRef.has(refCandidate)) operationIdByRef.set(refCandidate, row.id)
+      else if (operationIdByRef.get(refCandidate) !== row.id) operationIdByRef.set(refCandidate, '')
+    }
   }
 
   const scheduleIds = new Set(scheduleEntries.map((entry) => entry.id))
@@ -1227,6 +1660,8 @@ export function normalizeReportsFromBoard(input: {
   let missingOperationIdRef = 0
   let unresolvedOperationLink = 0
   let resolvedOperationLink = 0
+  let autoLinkedByIdSuffixUnique = 0
+  let autoLinkSkippedAmbiguousSuffix = 0
   let unresolvedScheduleLink = 0
 
   for (const item of reportsBoard.items_page?.items ?? []) {
@@ -1242,13 +1677,17 @@ export function normalizeReportsFromBoard(input: {
       continue
     }
 
-    let operationId: string | null = null
-    if (operationIds.has(operationIdRef)) {
-      operationId = operationIdRef
-    } else {
-      const fromShort = operationIdsByShort.get(operationIdRef)
-      if (fromShort && fromShort.trim()) operationId = fromShort
-    }
+    const operationResolution = resolveOperationIdByRef({
+      operationIdRef,
+      canonicalTechnicianEmail: null,
+      operationIdByRef,
+      operationIdsBySuffix,
+      operationsById,
+    })
+    const operationId = operationResolution.operationId
+    if (operationResolution.autoLinkedByIdSuffixUnique) autoLinkedByIdSuffixUnique += 1
+    if (operationResolution.skippedAmbiguousSuffix) autoLinkSkippedAmbiguousSuffix += 1
+
     if (operationId) resolvedOperationLink += 1
     else unresolvedOperationLink += 1
 
@@ -1296,12 +1735,19 @@ export function normalizeReportsFromBoard(input: {
         missingOperationIdRef,
         unresolvedOperationLink,
         resolvedOperationLink,
+        autoLinkedByIdSuffixUnique,
+        autoLinkSkippedAmbiguousSuffix,
         unresolvedScheduleLink,
         duplicateReportId,
       },
     },
   }
 }
+
+
+
+
+
 
 
 

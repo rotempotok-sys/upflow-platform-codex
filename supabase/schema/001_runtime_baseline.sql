@@ -66,6 +66,7 @@ create table if not exists assignments (
   id uuid primary key default gen_random_uuid(),
   operation_id text references operations(id) on delete cascade,
   user_email text,
+  technician_name text,
   role text,
   valid_from timestamptz,
   valid_to timestamptz,
@@ -165,5 +166,6 @@ create index if not exists idx_exceptions_code on exceptions(code);
 create index if not exists idx_exceptions_operation_id on exceptions(operation_id);
 create index if not exists idx_raw_events_source_event_type on raw_events(source, event_type);
 create index if not exists idx_sync_runs_source_started on sync_runs(source, started_at desc);
+
 
 

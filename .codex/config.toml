@@ -1,0 +1,13 @@
+﻿approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+allow_login_shell = false
+
+[shell_environment_policy]
+inherit = "none"
+include_only = ["PATH", "HOME", "SUPABASE_URL", "SUPABASE_PROJECT_REF", "SUPABASE_SERVICE_ROLE_KEY"]
+ignore_default_excludes = false
+
+# Example: keep MCP project-scoped and conservative
+# [mcp_servers.supabase]
+# url = "https://mcp.supabase.com/mcp?project_ref=YOUR_PROJECT_REF&read_only=true&features=database,docs"
+# required = false

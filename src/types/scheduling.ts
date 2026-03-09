@@ -47,6 +47,7 @@ export interface RuntimeOperationSnapshot {
   businessStatus: string | null
   operationStatus: string | null
   operationGroupStatus: string | null
+  technicianNameHint: string | null
   isOpen: boolean
   clientItemId: string | null
   facilityItemId: string | null
@@ -210,6 +211,7 @@ export interface RuntimeScheduleEntrySnapshot {
   plannedDateTime: string | null
   plannedDateTimeSource: 'calendar' | 'monday_date' | 'missing'
   calendarEventRef: string | null
+  reportItemIdRef: string | null
   scheduleStatus: string | null
   calendarSyncStatus: string | null
   controlStatus: string | null
@@ -373,6 +375,9 @@ export interface RuntimeOperationalProjections {
   }
   dailyWeeklyControl: DailyWeeklyControlSummaryProjection
 }
+
+
+
 
 
 
