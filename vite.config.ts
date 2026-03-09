@@ -10,9 +10,10 @@ import type { ApprovalStatus, PermissionKey, PlatformRole } from './server/auth/
 import { buildMondayMappingInventory } from './server/monday/mappingInventory'
 import { checkSupabaseRuntimeHealth, createSupabaseAdminClient, readSupabaseRuntimeConfig } from './server/runtime/supabase'
 import { persistRuntimeSnapshotToSupabase } from './server/runtime/sync'
-import { normalizeOperationsFromBoard, normalizeUsersFromAuthBoard } from './server/runtime/mondayRuntimeNormalize'
-import { readLatestRuntimeSyncRun, readRuntimeClientsAndFacilities } from './server/runtime/read'
+import { normalizeOperationsFromBoard, normalizeReportsFromBoard, normalizeScheduleEntriesFromBoard, normalizeUsersFromAuthBoard } from './server/runtime/mondayRuntimeNormalize'
+import { buildRuntimeOperationalProjections, readLatestRuntimeSyncRun, readRuntimeClientsAndFacilities } from './server/runtime/read'
 import { sanitizeRuntimeErrorMessage } from './server/runtime/security'
+import { computeCanonicalRuntimeExceptions } from './server/runtime/exceptions'
 
 interface ChatRequestBody {
   userId?: string
@@ -75,6 +76,8 @@ interface MondayColumnValue {
   type: string
   text: string
   value: string | null
+  displayValue?: string | null
+  relationIds?: string[]
 }
 
 interface MondayClientRecord {
@@ -86,6 +89,7 @@ interface MondayClientRecord {
   openTickets: number
   city: string
   group: string
+  facilitiesRelationIds: string[]
 }
 
 interface MondayFacilityRecord extends MondayClientRecord {
@@ -124,7 +128,7 @@ const MAX_USER_HISTORY = 300
 const CONTEXT_HISTORY_WINDOW = 5
 const MAX_LONG_TERM_ITEMS = 80
 const MAX_HIVE_HIGHLIGHTS = 80
-const RUNTIME_SYNC_SIGNATURE = 'runtime-sync-v3-users-ops-assignments-2026-03-07'
+const RUNTIME_SYNC_SIGNATURE = 'runtime-sync-v7-operation-status-group-2026-03-09'
 
 let memoryCache: MemoryStore | null = null
 
@@ -202,16 +206,16 @@ function questionKeywords(question: string) {
 function isFileLinkRequest(question: string) {
   const normalized = normalizeQuestionKey(question)
   const signals = [
-    'קישור',
-    'קישורים',
-    'לינק',
-    'לינקים',
-    'קובץ',
-    'קבצים',
-    'מסמך',
-    'מסמכים',
+    '׳§׳™׳©׳•׳¨',
+    '׳§׳™׳©׳•׳¨׳™׳',
+    '׳׳™׳ ׳§',
+    '׳׳™׳ ׳§׳™׳',
+    '׳§׳•׳‘׳¥',
+    '׳§׳‘׳¦׳™׳',
+    '׳׳¡׳׳',
+    '׳׳¡׳׳›׳™׳',
     'pdf',
-    'דרייב',
+    '׳“׳¨׳™׳™׳‘',
     'drive',
     'link',
     'links',
@@ -231,7 +235,7 @@ function linkSource(url: string): FileLinkEntry['source'] {
 }
 
 function parseFacilityFromLine(line: string) {
-  const match = /שם:\s*([^|]+)/.exec(line)
+  const match = /׳©׳:\s*([^|]+)/.exec(line)
   return match?.[1]?.trim() || ''
 }
 
@@ -251,7 +255,7 @@ function extractFileLinks(question: string, context: string) {
     const line = rawLine.trim()
     if (!line) continue
 
-    if (line.startsWith('מזהה:') && line.includes('שם:')) {
+    if (line.startsWith('׳׳–׳”׳”:') && line.includes('׳©׳:')) {
       currentFacility = parseFacilityFromLine(line)
     }
 
@@ -274,8 +278,8 @@ function extractFileLinks(question: string, context: string) {
       found.push({
         source: linkSource(url),
         url,
-        facility: currentFacility || 'ללא שיוך מתקן',
-        column: column || 'ללא שם עמודה',
+        facility: currentFacility || '׳׳׳ ׳©׳™׳•׳ ׳׳×׳§׳',
+        column: column || '׳׳׳ ׳©׳ ׳¢׳׳•׳“׳”',
         contextLine: line.slice(0, 220),
         score,
       })
@@ -305,11 +309,11 @@ function buildFileLinksContext(question: string, context: string) {
   const ordered = [...mondayLinks, ...driveLinks, ...otherLinks]
 
   const lines = ordered.map((entry) => {
-    const sourceLabel = entry.source === 'monday' ? 'Monday' : entry.source === 'google_drive' ? 'Google Drive' : 'אחר'
-    return `- מקור: ${sourceLabel} | מתקן: ${entry.facility} | שדה: ${entry.column} | קישור: ${entry.url}`
+    const sourceLabel = entry.source === 'monday' ? 'Monday' : entry.source === 'google_drive' ? 'Google Drive' : '׳׳—׳¨'
+    return `- ׳׳§׳•׳¨: ${sourceLabel} | ׳׳×׳§׳: ${entry.facility} | ׳©׳“׳”: ${entry.column} | ׳§׳™׳©׳•׳¨: ${entry.url}`
   })
 
-  return ['אינדקס קישורי קבצים שחולץ מהנתונים:', ...lines].join('\n')
+  return ['׳׳™׳ ׳“׳§׳¡ ׳§׳™׳©׳•׳¨׳™ ׳§׳‘׳¦׳™׳ ׳©׳—׳•׳׳¥ ׳׳”׳ ׳×׳•׳ ׳™׳:', ...lines].join('\n')
 }
 
 function ensureUser(store: MemoryStore, userId: string) {
@@ -342,7 +346,7 @@ function extractLongTermCandidates(question: string, answer: string) {
   const candidates: string[] = []
   const normalizedQuestion = sanitizeText(question, 500)
   if (normalizedQuestion.length >= 10) {
-    candidates.push(`שאל: ${normalizedQuestion}`)
+    candidates.push(`׳©׳׳: ${normalizedQuestion}`)
   }
 
   const answerLines = answer
@@ -352,7 +356,7 @@ function extractLongTermCandidates(question: string, answer: string) {
 
   for (const line of answerLines.slice(0, 5)) {
     if (line.length < 12) continue
-    candidates.push(`תשובה: ${line}`)
+    candidates.push(`׳×׳©׳•׳‘׳”: ${line}`)
   }
 
   return candidates.slice(0, 8)
@@ -361,7 +365,7 @@ function extractLongTermCandidates(question: string, answer: string) {
 function extractHiveHighlights(question: string, answer: string, userId: string) {
   const highlights: string[] = []
   const q = sanitizeText(question, 240)
-  if (q) highlights.push(`שאלה חוזרת אפשרית: ${q}`)
+  if (q) highlights.push(`׳©׳׳׳” ׳—׳•׳–׳¨׳× ׳׳₪׳©׳¨׳™׳×: ${q}`)
 
   const answerLine = answer
     .split(/\n+/)
@@ -369,7 +373,7 @@ function extractHiveHighlights(question: string, answer: string, userId: string)
     .find((line) => line.length >= 16)
 
   if (answerLine) {
-    highlights.push(`תובנה (${userId}): ${answerLine}`)
+    highlights.push(`׳×׳•׳‘׳ ׳” (${userId}): ${answerLine}`)
   }
 
   return highlights.slice(0, 3)
@@ -380,24 +384,24 @@ function buildHiveSummary(hive: HiveMemory) {
     .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 8)
 
-  const topLines = top.map(([question, details]) => `- ${question} (נשאל ${details.count} פעמים)`).join('\n') || '- אין עדיין שאלות נפוצות'
-  const recentHighlights = hive.highlights.slice(-10).map((line) => `- ${line}`).join('\n') || '- אין עדיין תובנות משותפות'
+  const topLines = top.map(([question, details]) => `- ${question} (׳ ׳©׳׳ ${details.count} ׳₪׳¢׳׳™׳)`).join('\n') || '- ׳׳™׳ ׳¢׳“׳™׳™׳ ׳©׳׳׳•׳× ׳ ׳₪׳•׳¦׳•׳×'
+  const recentHighlights = hive.highlights.slice(-10).map((line) => `- ${line}`).join('\n') || '- ׳׳™׳ ׳¢׳“׳™׳™׳ ׳×׳•׳‘׳ ׳•׳× ׳׳©׳•׳×׳₪׳•׳×'
 
-  return ['שאלות נפוצות (כוורת):', topLines, '', 'תובנות צוות אחרונות:', recentHighlights].join('\n')
+  return ['׳©׳׳׳•׳× ׳ ׳₪׳•׳¦׳•׳× (׳›׳•׳•׳¨׳×):', topLines, '', '׳×׳•׳‘׳ ׳•׳× ׳¦׳•׳•׳× ׳׳—׳¨׳•׳ ׳•׳×:', recentHighlights].join('\n')
 }
 
 function buildUserMemoryContext(user: UserMemory, hive: HiveMemory) {
   const recentHistory = user.history.slice(-CONTEXT_HISTORY_WINDOW)
   const recentHistoryText =
-    recentHistory.map((msg) => `${msg.role === 'user' ? 'משתמש' : 'עוזר'}: ${sanitizeText(msg.text, 350)}`).join('\n') || 'אין היסטוריה קודמת'
+    recentHistory.map((msg) => `${msg.role === 'user' ? '׳׳©׳×׳׳©' : '׳¢׳•׳–׳¨'}: ${sanitizeText(msg.text, 350)}`).join('\n') || '׳׳™׳ ׳”׳™׳¡׳˜׳•׳¨׳™׳” ׳§׳•׳“׳׳×'
 
-  const longTermText = user.longTerm.slice(-24).map((line) => `- ${line}`).join('\n') || '- אין עדיין זיכרון ארוך טווח'
+  const longTermText = user.longTerm.slice(-24).map((line) => `- ${line}`).join('\n') || '- ׳׳™׳ ׳¢׳“׳™׳™׳ ׳–׳™׳›׳¨׳•׳ ׳׳¨׳•׳ ׳˜׳•׳•׳—'
 
   return [
-    'היסטוריית שיחה אישית (5 הודעות אחרונות):',
+    '׳”׳™׳¡׳˜׳•׳¨׳™׳™׳× ׳©׳™׳—׳” ׳׳™׳©׳™׳× (5 ׳”׳•׳“׳¢׳•׳× ׳׳—׳¨׳•׳ ׳•׳×):',
     recentHistoryText,
     '',
-    'זיכרון ארוך טווח אישי:',
+    '׳–׳™׳›׳¨׳•׳ ׳׳¨׳•׳ ׳˜׳•׳•׳— ׳׳™׳©׳™:',
     longTermText,
     '',
     buildHiveSummary(hive),
@@ -472,19 +476,19 @@ function chooseModels(question: string, simpleModel: string, complexModel: strin
   const words = normalized.split(/\s+/).filter(Boolean)
 
   const complexSignals = [
-    'השווה',
-    'השוואה',
-    'נתח',
-    'ניתוח',
-    'המלצה',
-    'המלץ',
-    'תכנית',
-    'תוכנית',
-    'אסטרטג',
-    'מדוע',
-    'למה',
-    'איך לבנות',
-    'תחזית',
+    '׳”׳©׳•׳•׳”',
+    '׳”׳©׳•׳•׳׳”',
+    '׳ ׳×׳—',
+    '׳ ׳™׳×׳•׳—',
+    '׳”׳׳׳¦׳”',
+    '׳”׳׳׳¥',
+    '׳×׳›׳ ׳™׳×',
+    '׳×׳•׳›׳ ׳™׳×',
+    '׳׳¡׳˜׳¨׳˜׳’',
+    '׳׳“׳•׳¢',
+    '׳׳׳”',
+    '׳׳™׳ ׳׳‘׳ ׳•׳×',
+    '׳×׳—׳–׳™׳×',
     'scenario',
     'compare',
     'analysis',
@@ -494,10 +498,10 @@ function chooseModels(question: string, simpleModel: string, complexModel: strin
   ]
 
   const multiTopicSignals = [
-    ['מתקן', 'מתקנים', 'facility'],
-    ['לקוח', 'לקוחות', 'client'],
-    ['משימה', 'משימות', 'task'],
-    ['טכנאי', 'טכנאים', 'technician', 'team'],
+    ['׳׳×׳§׳', '׳׳×׳§׳ ׳™׳', 'facility'],
+    ['׳׳§׳•׳—', '׳׳§׳•׳—׳•׳×', 'client'],
+    ['׳׳©׳™׳׳”', '׳׳©׳™׳׳•׳×', 'task'],
+    ['׳˜׳›׳ ׳׳™', '׳˜׳›׳ ׳׳™׳', 'technician', 'team'],
   ]
 
   const matchedTopics = multiTopicSignals.filter((group) => group.some((token) => normalized.includes(token))).length
@@ -520,14 +524,14 @@ function chooseModels(question: string, simpleModel: string, complexModel: strin
 function decodePossiblyMojibake(value: string) {
   if (!value) return ''
 
-  const hasCorruptedPattern = /[\u0080-\u00FF]|׳/.test(value)
+  const hasCorruptedPattern = /[\u0080-\u00FF]|׳³/.test(value)
   if (!hasCorruptedPattern) return value
 
   const bytes = Buffer.from(value, 'latin1')
   const utf8Decoded = bytes.toString('utf8')
   const cp1255Decoded = new TextDecoder('windows-1255').decode(bytes)
 
-  const hasHebrew = (text: string) => /[א-ת]/.test(text)
+  const hasHebrew = (text: string) => /[׳-׳×]/.test(text)
 
   if (hasHebrew(cp1255Decoded)) return cp1255Decoded
   if (hasHebrew(utf8Decoded)) return utf8Decoded
@@ -539,14 +543,116 @@ function asNonEmpty(value: unknown) {
   return normalized.length ? normalized : ''
 }
 
+function extractRelationIdsFromRaw(rawValue: unknown): string[] {
+  const out = new Set<string>()
+  const push = (value: unknown) => {
+    const text = asNonEmpty(value)
+    if (text) out.add(text)
+  }
+
+  const walk = (value: unknown): void => {
+    if (value == null) return
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) return
+
+      if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+        try {
+          walk(JSON.parse(trimmed))
+          return
+        } catch {
+          // keep scalar fallback below
+        }
+      }
+
+      if (/^\d+$/.test(trimmed)) push(trimmed)
+      return
+    }
+
+    if (typeof value === 'number') {
+      push(value)
+      return
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) walk(entry)
+      return
+    }
+
+    if (typeof value !== 'object') return
+
+    const record = value as Record<string, unknown>
+
+    if (Array.isArray(record.linked_item_ids)) {
+      for (const id of record.linked_item_ids) walk(id)
+    }
+
+    if (Array.isArray(record.linked_items)) {
+      for (const item of record.linked_items) {
+        if (item && typeof item === 'object' && 'id' in (item as Record<string, unknown>)) {
+          walk((item as Record<string, unknown>).id)
+        } else {
+          walk(item)
+        }
+      }
+    }
+
+    if (Array.isArray(record.item_ids)) {
+      for (const id of record.item_ids) walk(id)
+    }
+
+    if (Array.isArray(record.linkedPulseIds)) {
+      for (const entry of record.linkedPulseIds) {
+        if (entry && typeof entry === 'object' && 'linkedPulseId' in (entry as Record<string, unknown>)) {
+          walk((entry as Record<string, unknown>).linkedPulseId)
+        } else {
+          walk(entry)
+        }
+      }
+    }
+
+    if ('value' in record) walk(record.value)
+    if ('data' in record) walk(record.data)
+  }
+
+  walk(rawValue)
+  return Array.from(out)
+}
+
+function extractRelationIdsFromGraphQLColumn(column: any): string[] {
+  if (!column || typeof column !== 'object') return []
+
+  if (Array.isArray(column.linked_item_ids)) {
+    return Array.from(new Set(column.linked_item_ids.map((entry: unknown) => asNonEmpty(entry)).filter((entry: string) => Boolean(entry))))
+  }
+
+  return extractRelationIdsFromRaw(column.value)
+}
+
 function normalizeColumns(item: any, titleById: Map<string, string>, typeById: Map<string, string>): MondayColumnValue[] {
-  return (item.column_values ?? []).map((column: any) => ({
-    id: String(column.id),
-    title: asNonEmpty(titleById.get(column.id) ?? column.id),
-    type: String(column.type ?? typeById.get(column.id) ?? 'unknown'),
-    text: asNonEmpty(column.display_value) || asNonEmpty(column.text),
-    value: typeof column.value === 'string' ? column.value : null,
-  }))
+  return (item.column_values ?? []).map((column: any) => {
+    const relationIds = extractRelationIdsFromGraphQLColumn(column)
+
+    const normalizedValue =
+      column.value != null
+        ? typeof column.value === 'string'
+          ? column.value
+          : JSON.stringify(column.value)
+        : relationIds.length > 0
+          ? JSON.stringify({ linked_item_ids: relationIds })
+          : null
+
+    return {
+      id: String(column.id),
+      title: asNonEmpty(titleById.get(column.id) ?? column.id),
+      type: String(column.type ?? typeById.get(column.id) ?? 'unknown'),
+      text: asNonEmpty(column.display_value) || asNonEmpty(column.text),
+      displayValue: asNonEmpty(column.display_value) || null,
+      value: normalizedValue,
+      relationIds,
+    }
+  })
 }
 
 function pickColumnText(columns: MondayColumnValue[], options: { ids?: string[]; titleIncludes?: string[] }) {
@@ -565,7 +671,7 @@ function pickColumnText(columns: MondayColumnValue[], options: { ids?: string[];
   return ''
 }
 
-function normalizeClientsBoard(board: any): MondayClientRecord[] {
+function normalizeClientsBoard(board: any, facilitiesRelationColumnId: string): MondayClientRecord[] {
   const titleById = new Map<string, string>((board.columns ?? []).map((column: any) => [String(column.id), String(column.title ?? '')]))
   const typeById = new Map<string, string>((board.columns ?? []).map((column: any) => [String(column.id), String(column.type ?? '')]))
 
@@ -575,26 +681,26 @@ function normalizeClientsBoard(board: any): MondayClientRecord[] {
     const city =
       pickColumnText(columns, {
         ids: ['text_mkna2fph', '______________'],
-        titleIncludes: ['ישוב', 'יישוב', 'שם העסק', 'הישוב', 'מיקום'],
+        titleIncludes: ['׳™׳©׳•׳‘', '׳™׳™׳©׳•׳‘', '׳©׳ ׳”׳¢׳¡׳§', '׳”׳™׳©׳•׳‘', '׳׳™׳§׳•׳'],
       }) || asNonEmpty(item.name)
 
     const facilityType =
       pickColumnText(columns, {
         ids: ['_____________'],
-        titleIncludes: ['סוג מתקן', 'מתקן'],
-      }) || 'לא הוגדר'
+        titleIncludes: ['׳¡׳•׳’ ׳׳×׳§׳', '׳׳×׳§׳'],
+      }) || '׳׳ ׳”׳•׳’׳“׳¨'
 
     const facilityStatus =
       pickColumnText(columns, {
         ids: ['color__1'],
-        titleIncludes: ['סטטוס מתקן', 'סטטוס'],
-      }) || 'לא הוגדר'
+        titleIncludes: ['׳¡׳˜׳˜׳•׳¡ ׳׳×׳§׳', '׳¡׳˜׳˜׳•׳¡'],
+      }) || '׳׳ ׳”׳•׳’׳“׳¨'
 
     const contractType =
       pickColumnText(columns, {
         ids: ['status'],
-        titleIncludes: ['סוג חוזה שירות', 'חוזה', 'שירות', 'חבילה'],
-      }) || 'לא הוגדר'
+        titleIncludes: ['׳¡׳•׳’ ׳—׳•׳–׳” ׳©׳™׳¨׳•׳×', '׳—׳•׳–׳”', '׳©׳™׳¨׳•׳×', '׳—׳‘׳™׳׳”'],
+      }) || '׳׳ ׳”׳•׳’׳“׳¨'
 
     return {
       id: String(item.id),
@@ -604,7 +710,12 @@ function normalizeClientsBoard(board: any): MondayClientRecord[] {
       contractType,
       openTickets: 0,
       city,
-      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || 'ללא קבוצה',
+      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || '׳׳׳ ׳§׳‘׳•׳¦׳”',
+      facilitiesRelationIds: (() => {
+        const relationColumn = columns.find((column) => column.id === facilitiesRelationColumnId)
+        if (relationColumn?.relationIds?.length) return relationColumn.relationIds
+        return extractRelationIdsFromRaw(relationColumn?.value ?? null)
+      })(),
     }
   })
 
@@ -622,23 +733,23 @@ function normalizeEquipmentBoard(board: any): MondayFacilityRecord[] {
     const city =
       pickColumnText(columns, {
         ids: ['text_mkna2fph'],
-        titleIncludes: ['יישוב', 'ישוב', 'עיר', 'מיקום'],
+        titleIncludes: ['׳™׳™׳©׳•׳‘', '׳™׳©׳•׳‘', '׳¢׳™׳¨', '׳׳™׳§׳•׳'],
       }) || asNonEmpty(item.name)
 
     const facilityType =
       pickColumnText(columns, {
-        titleIncludes: ['סוג המתקן', 'סוג מתקן', 'מתקן'],
-      }) || 'לא הוגדר'
+        titleIncludes: ['׳¡׳•׳’ ׳”׳׳×׳§׳', '׳¡׳•׳’ ׳׳×׳§׳', '׳׳×׳§׳'],
+      }) || '׳׳ ׳”׳•׳’׳“׳¨'
 
     const facilityStatus =
       pickColumnText(columns, {
-        titleIncludes: ['סטטוס מתקן', 'סטטוס'],
-      }) || 'לא הוגדר'
+        titleIncludes: ['׳¡׳˜׳˜׳•׳¡ ׳׳×׳§׳', '׳¡׳˜׳˜׳•׳¡'],
+      }) || '׳׳ ׳”׳•׳’׳“׳¨'
 
     const contractType =
       pickColumnText(columns, {
-        titleIncludes: ['סוג חוזה שירות', 'חוזה שירות', 'חוזה'],
-      }) || 'לא הוגדר'
+        titleIncludes: ['׳¡׳•׳’ ׳—׳•׳–׳” ׳©׳™׳¨׳•׳×', '׳—׳•׳–׳” ׳©׳™׳¨׳•׳×', '׳—׳•׳–׳”'],
+      }) || '׳׳ ׳”׳•׳’׳“׳¨'
 
     return {
       id: String(item.id),
@@ -648,7 +759,7 @@ function normalizeEquipmentBoard(board: any): MondayFacilityRecord[] {
       contractType,
       openTickets: 0,
       city,
-      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || 'ללא קבוצה',
+      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || '׳׳׳ ׳§׳‘׳•׳¦׳”',
       columns,
     }
   })
@@ -691,6 +802,7 @@ async function fetchBoard(token: string, boardId: string) {
           title
           type
         }
+
         items_page(limit: 500) {
           items {
             id
@@ -702,7 +814,7 @@ async function fetchBoard(token: string, boardId: string) {
               type
               value
               ... on MirrorValue { display_value }
-              ... on BoardRelationValue { display_value }
+              ... on BoardRelationValue { display_value linked_item_ids }
               ... on DependencyValue { display_value }
               ... on FormulaValue { display_value }
               ... on SubtasksValue { display_value }
@@ -733,17 +845,17 @@ async function requestOpenRouter(options: {
   const { apiKey, models, question, context, shouldReturnLinks } = options
 
   const systemPrompt = [
-    'אתה סוכן תפעולי של Upflow.',
-    'ענה בעברית ברורה וקצרה.',
-    'השתמש אך ורק במידע שסופק בקונטקסט.',
-    'אם המידע לא קיים בקונטקסט, ציין זאת במפורש ואל תמציא נתונים.',
-    'כאשר רלוונטי, החזר נקודות קצרות עם מספרים מדויקים.',
+    '׳׳×׳” ׳¡׳•׳›׳ ׳×׳₪׳¢׳•׳׳™ ׳©׳ Upflow.',
+    '׳¢׳ ׳” ׳‘׳¢׳‘׳¨׳™׳× ׳‘׳¨׳•׳¨׳” ׳•׳§׳¦׳¨׳”.',
+    '׳”׳©׳×׳׳© ׳׳ ׳•׳¨׳§ ׳‘׳׳™׳“׳¢ ׳©׳¡׳•׳₪׳§ ׳‘׳§׳•׳ ׳˜׳§׳¡׳˜.',
+    '׳׳ ׳”׳׳™׳“׳¢ ׳׳ ׳§׳™׳™׳ ׳‘׳§׳•׳ ׳˜׳§׳¡׳˜, ׳¦׳™׳™׳ ׳–׳׳× ׳‘׳׳₪׳•׳¨׳© ׳•׳׳ ׳×׳׳¦׳™׳ ׳ ׳×׳•׳ ׳™׳.',
+    '׳›׳׳©׳¨ ׳¨׳׳•׳•׳ ׳˜׳™, ׳”׳—׳–׳¨ ׳ ׳§׳•׳“׳•׳× ׳§׳¦׳¨׳•׳× ׳¢׳ ׳׳¡׳₪׳¨׳™׳ ׳׳“׳•׳™׳§׳™׳.',
     shouldReturnLinks
-      ? 'המשתמש ביקש קישורים לקבצים. החזר קישורים לחיצים בפורמט Markdown: [שם קצר](https://...). תעדף Monday ו-Google Drive כשהם קיימים.'
-      : 'אם יש URL-ים רלוונטיים בתשובה, החזר אותם כלינקים לחיצים בפורמט Markdown.',
+      ? '׳”׳׳©׳×׳׳© ׳‘׳™׳§׳© ׳§׳™׳©׳•׳¨׳™׳ ׳׳§׳‘׳¦׳™׳. ׳”׳—׳–׳¨ ׳§׳™׳©׳•׳¨׳™׳ ׳׳—׳™׳¦׳™׳ ׳‘׳₪׳•׳¨׳׳˜ Markdown: [׳©׳ ׳§׳¦׳¨](https://...). ׳×׳¢׳“׳£ Monday ׳•-Google Drive ׳›׳©׳”׳ ׳§׳™׳™׳׳™׳.'
+      : '׳׳ ׳™׳© URL-׳™׳ ׳¨׳׳•׳•׳ ׳˜׳™׳™׳ ׳‘׳×׳©׳•׳‘׳”, ׳”׳—׳–׳¨ ׳׳•׳×׳ ׳›׳׳™׳ ׳§׳™׳ ׳׳—׳™׳¦׳™׳ ׳‘׳₪׳•׳¨׳׳˜ Markdown.',
   ].join('\n')
 
-  const userPrompt = [`שאלה: ${question}`, '', 'קונטקסט נתונים:', context || 'לא סופק קונטקסט.'].join('\n')
+  const userPrompt = [`׳©׳׳׳”: ${question}`, '', '׳§׳•׳ ׳˜׳§׳¡׳˜ ׳ ׳×׳•׳ ׳™׳:', context || '׳׳ ׳¡׳•׳₪׳§ ׳§׳•׳ ׳˜׳§׳¡׳˜.'].join('\n')
 
   let lastErrorMessage = 'OpenRouter request failed'
 
@@ -956,11 +1068,36 @@ function attachApiMiddleware(
         const equipmentBoard = await fetchBoard(env.mondayApiToken, env.mondayEquipmentBoardId)
         const authBoard = await fetchBoard(env.mondayApiToken, mappingInventory.boards.auth)
         const operationsBoard = await fetchBoard(env.mondayApiToken, mappingInventory.boards.operations)
+        const scheduleBoard = await fetchBoard(env.mondayApiToken, mappingInventory.boards.schedule)
+        const reportsBoard = await fetchBoard(env.mondayApiToken, mappingInventory.boards.reports)
 
-        const clients = normalizeClientsBoard(clientsBoard)
+        const clients = normalizeClientsBoard(clientsBoard, mappingInventory.columns.clients.facilitiesRelation)
         const facilities = normalizeEquipmentBoard(equipmentBoard)
         const usersSnapshot = normalizeUsersFromAuthBoard(authBoard, mappingInventory)
-        const operationsSnapshot = normalizeOperationsFromBoard(operationsBoard, mappingInventory)
+        const operationsSnapshot = normalizeOperationsFromBoard({
+          operationsBoard,
+          clientsBoard,
+          scheduleBoard,
+          mapping: mappingInventory,
+          runtimeUsers: usersSnapshot.users,
+        })
+        const scheduleSnapshot = normalizeScheduleEntriesFromBoard({
+          scheduleBoard,
+          operations: operationsSnapshot.operations,
+          runtimeUsers: usersSnapshot.users,
+          mapping: mappingInventory,
+        })
+        const reportsSnapshot = normalizeReportsFromBoard({
+          reportsBoard,
+          operations: operationsSnapshot.operations,
+          scheduleEntries: scheduleSnapshot.scheduleEntries,
+          mapping: mappingInventory,
+        })
+        const exceptionsSnapshot = computeCanonicalRuntimeExceptions({
+          operations: operationsSnapshot.operations,
+          scheduleEntries: scheduleSnapshot.scheduleEntries,
+          reports: reportsSnapshot.reports,
+        })
         const fetchedAt = new Date().toISOString()
 
         const diagnostics = {
@@ -971,6 +1108,8 @@ function attachApiMiddleware(
             equipment: { id: String(equipmentBoard.id), name: String(equipmentBoard.name ?? 'equipment'), items: (equipmentBoard.items_page?.items ?? []).length },
             auth: { id: String(authBoard.id), name: String(authBoard.name ?? 'auth'), items: (authBoard.items_page?.items ?? []).length },
             operations: { id: String(operationsBoard.id), name: String(operationsBoard.name ?? 'operations'), items: (operationsBoard.items_page?.items ?? []).length },
+            schedule: { id: String(scheduleBoard.id), name: String(scheduleBoard.name ?? 'schedule'), items: (scheduleBoard.items_page?.items ?? []).length },
+            reports: { id: String(reportsBoard.id), name: String(reportsBoard.name ?? 'reports'), items: (reportsBoard.items_page?.items ?? []).length },
           },
           normalized: {
             clients: clients.length,
@@ -978,10 +1117,20 @@ function attachApiMiddleware(
             users: usersSnapshot.users.length,
             operations: operationsSnapshot.operations.length,
             assignments: operationsSnapshot.assignments.length,
+            scheduleEntries: scheduleSnapshot.scheduleEntries.length,
+            reports: reportsSnapshot.reports.length,
+            exceptions: exceptionsSnapshot.exceptions.length,
           },
           skipped: {
             users: usersSnapshot.diagnostics.skipped,
             operations: operationsSnapshot.diagnostics.skipped,
+            schedule: scheduleSnapshot.diagnostics.skipped,
+            reports: reportsSnapshot.diagnostics.skipped,
+          },
+          payloadSamples: {
+            auth: usersSnapshot.diagnostics.payloadSamples?.auth ?? [],
+            operationsClientRelation: operationsSnapshot.diagnostics.payloadSamples?.operationsClientRelation ?? [],
+            clientsFacilitiesRelation: operationsSnapshot.diagnostics.payloadSamples?.clientsFacilitiesRelation ?? [],
           },
         }
 
@@ -994,6 +1143,9 @@ function attachApiMiddleware(
           users: usersSnapshot.users,
           operations: operationsSnapshot.operations,
           assignments: operationsSnapshot.assignments,
+          scheduleEntries: scheduleSnapshot.scheduleEntries,
+          reports: reportsSnapshot.reports,
+          exceptions: exceptionsSnapshot.exceptions,
           syncDiagnostics: diagnostics,
         })
 
@@ -1003,6 +1155,9 @@ function attachApiMiddleware(
           users: result.usersUpserted,
           operations: result.operationsUpserted,
           assignments: result.assignmentsUpserted,
+          scheduleEntries: result.scheduleEntriesUpserted,
+          reports: result.reportsUpserted,
+          exceptions: result.exceptionsUpserted,
         }
 
         res.statusCode = 200
@@ -1263,6 +1418,9 @@ function attachApiMiddleware(
         let facilities = runtimeSnapshot.facilities
         let operations = runtimeSnapshot.operations
         let assignments = runtimeSnapshot.assignments
+        let scheduleEntries = runtimeSnapshot.scheduleEntries
+        let reports = runtimeSnapshot.reports
+        let exceptions = runtimeSnapshot.exceptions
         let users = runtimeSnapshot.users
 
         if (guard.user.scope.scopedRole) {
@@ -1278,7 +1436,29 @@ function attachApiMiddleware(
             (entry) => String(entry.userEmail ?? '').trim().toLowerCase() === scopedEmail && allowedOperationIds.has(entry.operationId),
           )
           users = users.filter((entry) => entry.email === scopedEmail)
+          scheduleEntries = scheduleEntries.filter((entry) => {
+            const scheduleEmail = String(entry.technicianEmail ?? '').trim().toLowerCase()
+            return scheduleEmail === scopedEmail && allowedOperationIds.has(String(entry.operationId ?? ''))
+          })
+          reports = reports.filter((entry) => allowedOperationIds.has(String(entry.operationId ?? '')))
+          exceptions = exceptions.filter((entry) => {
+            if (entry.operationId && allowedOperationIds.has(String(entry.operationId))) return true
+            const exceptionEmail = String(entry.technicianEmail ?? '').trim().toLowerCase()
+            return exceptionEmail === scopedEmail
+          })
         }
+
+        const projections = buildRuntimeOperationalProjections({
+          clients,
+          facilities,
+          operations,
+          assignments,
+          users,
+          scheduleEntries,
+          reports,
+          exceptions,
+          fetchedAt: runtimeSnapshot.fetchedAt,
+        })
 
         res.statusCode = 200
         res.setHeader('Content-Type', 'application/json; charset=utf-8')
@@ -1289,6 +1469,10 @@ function attachApiMiddleware(
             operations,
             assignments,
             users,
+            scheduleEntries,
+            reports,
+            exceptions,
+            projections,
             fetchedAt: runtimeSnapshot.fetchedAt,
             source: 'supabase_runtime',
           }),
@@ -1386,7 +1570,7 @@ function attachApiMiddleware(
         const memoryContext = buildUserMemoryContext(user, store.hive)
         const linksRequested = isFileLinkRequest(question)
         const linksContext = buildFileLinksContext(question, context)
-        const fullContext = [memoryContext, '', 'קונטקסט עסקי נוסף:', context, linksContext ? `\n${linksContext}` : ''].join('\n')
+        const fullContext = [memoryContext, '', '׳§׳•׳ ׳˜׳§׳¡׳˜ ׳¢׳¡׳§׳™ ׳ ׳•׳¡׳£:', context, linksContext ? `\n${linksContext}` : ''].join('\n')
 
         const modelSelection = chooseModels(question, env.simpleModel, env.complexModel)
         const aiResult = await requestOpenRouter({
@@ -1516,6 +1700,7 @@ export default defineConfig(({ mode }) => {
       auth: {
         role: (loaded.AUTH_ROLE_COLUMN_ID || 'color_mm16fjq9').trim(),
         approval: (loaded.AUTH_APPROVAL_COLUMN_ID || 'color_mm167kpn').trim(),
+        employeeStatus: (loaded.AUTH_EMPLOYEE_STATUS_COLUMN_ID || 'status_mkmesmm9').trim(),
         email: (loaded.AUTH_EMAIL_COLUMN_ID || 'email').trim(),
         phone: (loaded.AUTH_PHONE_COLUMN_ID || 'phone_mkn2my3a').trim(),
         assistantToggle: (loaded.AUTH_TOGGLE_ASSISTANT_COLUMN_ID || 'boolean_mm16vydm').trim(),
@@ -1529,6 +1714,9 @@ export default defineConfig(({ mode }) => {
       },
       operations: {
         shortOperationId: (loaded.OPERATIONS_SHORT_ID_COLUMN_ID || 'text_mknfh1x1').trim(),
+        requestPurpose: (loaded.OPERATIONS_REQUEST_PURPOSE_COLUMN_ID || 'dropdown_mkmm9qzh').trim(),
+        businessStatus: (loaded.OPERATIONS_BUSINESS_STATUS_COLUMN_ID || 'color_mkngxc3y').trim(),
+        clientRelation: (loaded.OPERATIONS_CLIENT_RELATION_COLUMN_ID || 'connect_boards_mkmmhxe7').trim(),
         performerRelation: (loaded.OPERATIONS_PERFORMER_RELATION_COLUMN_ID || 'board_relation_mm17kvck').trim(),
         performerEmailMirror: (loaded.OPERATIONS_PERFORMER_EMAIL_MIRROR_COLUMN_ID || 'lookup_mm174zqb').trim(),
         scheduleRelation: (loaded.OPERATIONS_SCHEDULE_RELATION_COLUMN_ID || 'connect_boards_mkn82w54').trim(),
@@ -1536,10 +1724,18 @@ export default defineConfig(({ mode }) => {
         reportSequenceNumber: (loaded.OPERATIONS_REPORT_SEQUENCE_COLUMN_ID || 'numbers_mkmvq21y').trim(),
         executionStatusCheck: (loaded.OPERATIONS_EXECUTION_STATUS_COLUMN_ID || 'color_mm17daw5').trim(),
       },
+      clients: {
+        facilitiesRelation: (loaded.CLIENTS_FACILITIES_RELATION_COLUMN_ID || 'board_relation_mm18w9fb').trim(),
+      },
       schedule: {
         operationIdRef: (loaded.SCHEDULE_OPERATION_ID_REF_COLUMN_ID || 'text_mknfnj59').trim(),
         technicianRelation: (loaded.SCHEDULE_TECHNICIAN_RELATION_COLUMN_ID || 'board_relation_mm173tqk').trim(),
         technicianEmailMirror: (loaded.SCHEDULE_TECHNICIAN_EMAIL_MIRROR_COLUMN_ID || 'lookup_mm17dqgp').trim(),
+        technicianLegacyDropdown: (loaded.SCHEDULE_TECHNICIAN_LEGACY_DROPDOWN_COLUMN_ID || 'dropdown_mkmmb2x').trim(),
+        taskType: (loaded.SCHEDULE_TASK_TYPE_COLUMN_ID || 'dropdown_mkn9g57j').trim(),
+        plannedDate: (loaded.SCHEDULE_PLANNED_DATE_COLUMN_ID || 'date4').trim(),
+        calendarEventRef: (loaded.SCHEDULE_CALENDAR_EVENT_REF_COLUMN_ID || 'integration').trim(),
+        scheduleStatus: (loaded.SCHEDULE_STATUS_COLUMN_ID || 'status').trim(),
         reportRelation: (loaded.SCHEDULE_REPORT_RELATION_COLUMN_ID || 'connect_boards_mkn1c2vc').trim(),
         calendarSyncStatus: (loaded.SCHEDULE_CALENDAR_SYNC_STATUS_COLUMN_ID || 'color_mm17pp1n').trim(),
         scheduleControlStatus: (loaded.SCHEDULE_CONTROL_STATUS_COLUMN_ID || 'color_mm179n1t').trim(),
@@ -1570,6 +1766,13 @@ export default defineConfig(({ mode }) => {
     ],
   }
 })
+
+
+
+
+
+
+
 
 
 

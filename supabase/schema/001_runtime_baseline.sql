@@ -23,6 +23,7 @@ create table if not exists clients (
   open_tickets integer not null default 0,
   city text,
   group_name text,
+  facilities_relation_ids text[] not null default '{}',
   source text not null default 'monday',
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -52,6 +53,8 @@ create table if not exists operations (
   client_id text references clients(id) on delete set null,
   facility_id text references facilities(id) on delete set null,
   assigned_technician_email text,
+  business_status text,
+  operation_group_status text,
   execution_status text,
   source text not null default 'monday',
   metadata jsonb not null default '{}'::jsonb,
@@ -162,3 +165,5 @@ create index if not exists idx_exceptions_code on exceptions(code);
 create index if not exists idx_exceptions_operation_id on exceptions(operation_id);
 create index if not exists idx_raw_events_source_event_type on raw_events(source, event_type);
 create index if not exists idx_sync_runs_source_started on sync_runs(source, started_at desc);
+
+
