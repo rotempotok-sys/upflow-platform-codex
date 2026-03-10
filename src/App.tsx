@@ -8,6 +8,7 @@ import { CalendarLinkPage } from './features/calendar/CalendarLinkPage'
 import { ClientsOverview } from './features/clients/ClientsOverview'
 import { EquipmentBoardPage } from './features/equipment/EquipmentBoardPage'
 import { TeamOverview } from './features/team/TeamOverview'
+import { HomeDashboard } from './features/home/HomeDashboard'
 import type {
   Client,
   FacilityRecord,
@@ -20,7 +21,7 @@ import type {
   RuntimeUserSnapshot,
 } from './types/scheduling'
 
-type ViewKey = 'assistant' | 'team' | 'clients' | 'calendar' | 'equipment'
+type ViewKey = 'home' | 'assistant' | 'team' | 'clients' | 'calendar' | 'equipment'
 type SyncState = 'idle' | 'syncing' | 'ok' | 'error'
 type AppAuthState = 'booting' | 'unauthenticated' | 'approved' | 'pending' | 'blocked' | 'not_authorized' | 'error'
 
@@ -77,6 +78,7 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000
 const AUTH_SHELL_MARKER = 'AUTH SHELL V2 ACTIVE - 2026-03-07T06:25:00Z'
 
 const viewMeta: Record<ViewKey, { title: string; tag: string; permission: PermissionKey }> = {
+  home: { title: 'בית', tag: 'Dashboard', permission: 'screen.clients' },
   assistant: { title: 'סוכן AI', tag: 'AI Agent', permission: 'screen.assistant' },
   team: { title: 'צוות וביצוע', tag: 'Operations', permission: 'screen.team' },
   clients: { title: 'לקוחות', tag: 'Clients', permission: 'screen.clients' },
@@ -84,7 +86,7 @@ const viewMeta: Record<ViewKey, { title: string; tag: string; permission: Permis
   equipment: { title: 'תיקי מתקן', tag: 'Equipment', permission: 'screen.equipment' },
 }
 
-const viewOrder: ViewKey[] = ['assistant', 'calendar', 'clients', 'team', 'equipment']
+const viewOrder: ViewKey[] = ['home', 'assistant', 'calendar', 'clients', 'team', 'equipment']
 
 function formatSyncTime(value: string | null) {
   if (!value) return 'טרם סונכרן'
@@ -94,25 +96,7 @@ function formatSyncTime(value: string | null) {
 }
 
 function AuthShellMarker() {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 12,
-        left: 12,
-        zIndex: 9999,
-        background: '#fffbcc',
-        color: '#111',
-        border: '2px solid #111',
-        borderRadius: 8,
-        padding: '6px 10px',
-        fontWeight: 700,
-        fontSize: 12,
-      }}
-    >
-      {AUTH_SHELL_MARKER}
-    </div>
-  )
+  return null
 }
 
 function App() {
@@ -121,7 +105,7 @@ function App() {
   const [authPermissions, setAuthPermissions] = useState<PermissionKey[]>([])
   const [authMessage, setAuthMessage] = useState<string | null>(null)
 
-  const [activeView, setActiveView] = useState<ViewKey>('assistant')
+  const [activeView, setActiveView] = useState<ViewKey>('home')
   const [clients, setClients] = useState<Client[]>([])
   const [facilities, setFacilities] = useState<FacilityRecord[]>([])
   const [operations, setOperations] = useState<RuntimeOperationSnapshot[]>([])
@@ -134,6 +118,7 @@ function App() {
   const [syncState, setSyncState] = useState<SyncState>('idle')
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [mondaySyncState, setMondaySyncState] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle')
 
   const allowedViews = useMemo(() => {
     return viewOrder.filter((view) => authPermissions.includes(viewMeta[view].permission))
@@ -152,6 +137,22 @@ function App() {
       authPermissions.includes(permission as PermissionKey),
     )
   }, [authState, authPermissions])
+
+  const triggerMondaySync = async () => {
+    if (mondaySyncState === 'syncing') return
+    setMondaySyncState('syncing')
+    try {
+      const res = await fetch('/api/runtime-db/sync/monday-snapshot', { method: 'POST' })
+      const body = (await res.json()) as { error?: { message?: string } }
+      if (!res.ok) throw new Error(body.error?.message ?? 'Sync failed')
+      setMondaySyncState('ok')
+      setTimeout(() => setMondaySyncState('idle'), 3000)
+    } catch (err) {
+      setMondaySyncState('error')
+      setTimeout(() => setMondaySyncState('idle'), 5000)
+      console.error('Monday sync failed:', err)
+    }
+  }
 
   const logout = async () => {
     try {
@@ -355,7 +356,19 @@ function App() {
       }
     }
 
-    void pullSnapshot()
+    void pullSnapshot().then(() => {
+      // Auto-sync from Monday on first open of the day
+      setLastSyncAt((currentLastSync) => {
+        if (currentLastSync) {
+          const lastSyncDay = new Date(currentLastSync).toDateString()
+          const today = new Date().toDateString()
+          if (lastSyncDay !== today) {
+            void triggerMondaySync()
+          }
+        }
+        return currentLastSync
+      })
+    })
     const timer = window.setInterval(() => {
       void pullSnapshot()
     }, POLL_INTERVAL_MS)
@@ -515,10 +528,34 @@ function App() {
                 : 'אין הרשאת Snapshot לנתוני Monday'}
               {syncState === 'error' && syncError ? ` | שגיאה: ${syncError}` : ''}
             </p>
+            {(authUser?.role === 'Admin' || authUser?.role === 'Operations') && (
+              <button
+                type="button"
+                className="tab"
+                style={{ fontSize: '0.75rem', padding: '4px 10px', marginRight: '8px' }}
+                disabled={mondaySyncState === 'syncing'}
+                onClick={() => void triggerMondaySync()}
+              >
+                {mondaySyncState === 'syncing' ? '⏳ מסנכרן...' : mondaySyncState === 'ok' ? '✅ הושלם' : mondaySyncState === 'error' ? '❌ שגיאה' : '🔄 סנכרן מ-Monday'}
+              </button>
+            )}
           </header>
         ) : null}
 
         <section className="view-stage" aria-label={viewMeta[activeView].title}>
+          {activeView === 'home' ? (
+            <HomeDashboard
+              currentUserEmail={authUser?.email ?? null}
+              currentUserRole={authUser?.role ?? null}
+              operationsData={operations}
+              exceptionsData={exceptions}
+              scheduleEntriesData={scheduleEntries}
+              usersData={users}
+              facilitiesData={facilities}
+              projectionsData={projections}
+              isLoading={syncState === 'syncing' && operations.length === 0}
+            />
+          ) : null}
           {activeView === 'assistant' ? <OperationsAIAgentPage clientsData={clients} facilitiesData={facilities} /> : null}
           {activeView === 'team' ? (
             <TeamOverview

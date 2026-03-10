@@ -44,7 +44,7 @@ function isOpenOperation(operation: RuntimeOperationSnapshotRow): boolean {
 function isCompletedStatus(value: string | null): boolean {
   const text = normalizeText(value).toLowerCase()
   if (!text) return false
-  return ['׳‘׳•׳¦׳¢', '׳”׳•׳©׳׳', '׳¡׳’׳•׳¨', 'done', 'completed', 'closed'].some((keyword) => text.includes(keyword))
+  return ['בוצע', 'הושלם', 'סגור', 'done', 'completed', 'closed'].some((keyword) => text.includes(keyword))
 }
 
 function dateToIsoDay(value: string | null): string {

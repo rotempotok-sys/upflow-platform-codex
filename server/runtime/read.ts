@@ -30,17 +30,28 @@ interface RuntimeUserRow {
   display_name: string | null
   role: string | null
   approval: string | null
+  employee_status: string | null
+  can_team: boolean | null
+  can_calendar: boolean | null
+  can_clients: boolean | null
+  can_equipment: boolean | null
+  can_assistant: boolean | null
+  can_ai_ask: boolean | null
 }
 
 interface RuntimeOperationRow {
   id: string
   short_operation_id: string | null
+  title: string | null
   client_id: string | null
   facility_id: string | null
   assigned_technician_email: string | null
   business_status: string | null
   operation_group_status: string | null
   execution_status: string | null
+  request_purpose_raw: string | null
+  operation_category: string | null
+  is_open: boolean | null
   metadata: Record<string, unknown> | null
 }
 
@@ -60,6 +71,9 @@ interface RuntimeScheduleEntryRow {
   calendar_sync_status: string | null
   calendar_event_id: string | null
   report_item_id_ref: string | null
+  task_type: string | null
+  planned_date: string | null
+  planned_datetime: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -111,6 +125,13 @@ export interface RuntimeUserSnapshot {
   displayName: string
   role: string | null
   approval: string | null
+  employeeStatus: string | null
+  canTeam: boolean
+  canCalendar: boolean
+  canClients: boolean
+  canEquipment: boolean
+  canAssistant: boolean
+  canAiAsk: boolean
 }
 
 export interface RuntimeOperationSnapshot {
@@ -360,16 +381,21 @@ function mapClient(row: RuntimeClientRow): RuntimeClientSnapshot {
 function mapOperation(row: RuntimeOperationRow): RuntimeOperationSnapshot {
   const metadata = (row.metadata ?? {}) as Record<string, unknown>
 
+  // Prefer canonical columns; fall back to metadata for backward compatibility with older sync runs
+  const requestPurposeRaw = String(row.request_purpose_raw ?? metadata.requestPurposeRaw ?? '').trim() || null
+  const operationCategory = String(row.operation_category ?? metadata.operationCategory ?? '').trim() || null
+  const isOpen = row.is_open != null ? row.is_open : Boolean(metadata.isOpen === true)
+
   return {
     id: String(row.id ?? '').trim(),
     shortOperationId: String(row.short_operation_id ?? '').trim() || null,
-    requestPurposeRaw: String(metadata.requestPurposeRaw ?? '').trim() || null,
-    operationCategory: String(metadata.operationCategory ?? '').trim() || null,
+    requestPurposeRaw,
+    operationCategory,
     businessStatus: String(row.business_status ?? metadata.businessStatus ?? '').trim() || null,
     operationStatus: String(row.business_status ?? metadata.operationStatus ?? metadata.businessStatus ?? '').trim() || null,
     operationGroupStatus: String(row.operation_group_status ?? metadata.operationGroupStatus ?? '').trim() || null,
     technicianNameHint: String(metadata.performerDisplay ?? '').trim() || null,
-    isOpen: Boolean(metadata.isOpen === true),
+    isOpen,
     clientItemId: String(row.client_id ?? metadata.clientItemId ?? '').trim() || null,
     facilityItemId: String(row.facility_id ?? metadata.facilityItemId ?? '').trim() || null,
     facilityLinkageState:
@@ -406,15 +432,21 @@ function mapAssignment(row: RuntimeAssignmentRow): RuntimeAssignmentSnapshot {
 
 function mapScheduleEntry(row: RuntimeScheduleEntryRow): RuntimeScheduleEntrySnapshot {
   const metadata = (row.metadata ?? {}) as Record<string, unknown>
+
+  // Prefer canonical columns; fall back to metadata for backward compatibility with older sync runs
+  const taskType = String(row.task_type ?? metadata.taskType ?? '').trim() || null
+  const plannedDate = String(row.planned_date ?? metadata.plannedDate ?? '').trim() || null
+  const plannedDateTime = String(row.planned_datetime ?? metadata.plannedDateTime ?? '').trim() || null
+
   return {
     id: String(row.id ?? '').trim(),
     operationIdRef: String(row.operation_id_ref ?? '').trim() || null,
     operationId: String(row.operation_id ?? '').trim() || null,
     technicianEmail: String(row.technician_email ?? '').trim().toLowerCase() || null,
-    taskType: String(metadata.taskType ?? '').trim() || null,
+    taskType,
     legacyTechnicianDropdownValue: String(metadata.legacyTechnicianDropdownValue ?? '').trim() || null,
-    plannedDate: String(metadata.plannedDate ?? '').trim() || null,
-    plannedDateTime: String(metadata.plannedDateTime ?? '').trim() || null,
+    plannedDate,
+    plannedDateTime,
     plannedDateTimeSource:
       (String(metadata.plannedDateTimeSource ?? '').trim() as 'calendar' | 'monday_date' | 'missing') || 'missing',
     calendarEventRef: String(row.calendar_event_id ?? '').trim() || null,
@@ -467,12 +499,19 @@ function mapException(row: RuntimeExceptionRow): RuntimeExceptionSnapshot {
     displayName: String(row.display_name ?? '').trim() || email,
     role: String(row.role ?? '').trim() || null,
     approval: String(row.approval ?? '').trim() || null,
+    employeeStatus: String(row.employee_status ?? '').trim() || null,
+    canTeam: row.can_team === true,
+    canCalendar: row.can_calendar === true,
+    canClients: row.can_clients === true,
+    canEquipment: row.can_equipment === true,
+    canAssistant: row.can_assistant === true,
+    canAiAsk: row.can_ai_ask === true,
   }
 }
 
 function isHighPriorityOperation(operation: RuntimeOperationSnapshot): boolean {
   const text = `${operation.businessStatus ?? ''} ${operation.executionStatus ?? ''} ${operation.requestPurposeRaw ?? ''}`.toLowerCase()
-  return ['׳“׳—׳•׳£', '׳—׳™׳¨׳•׳', 'urgent', 'exception', 'error', '׳×׳§׳׳”'].some((marker) => text.includes(marker))
+  return ['דחוף', 'חירום', 'urgent', 'exception', 'error', 'תקלה'].some((marker) => text.includes(marker))
 }
 
 function createEmptyState(input: {
@@ -777,7 +816,7 @@ export async function readRuntimeClientsAndFacilities(client: any, knownSecrets:
 
   const operationsResult = await client
     .from('operations')
-    .select('id,short_operation_id,client_id,facility_id,assigned_technician_email,business_status,operation_group_status,execution_status,metadata')
+    .select('id,short_operation_id,title,client_id,facility_id,assigned_technician_email,business_status,operation_group_status,execution_status,request_purpose_raw,operation_category,is_open,metadata')
     .order('id', { ascending: true })
 
   if (operationsResult.error) {
@@ -791,7 +830,7 @@ export async function readRuntimeClientsAndFacilities(client: any, knownSecrets:
 
   const scheduleEntriesResult = await client
     .from('schedule_entries')
-    .select('id,operation_id_ref,operation_id,technician_email,schedule_control_status,calendar_sync_status,calendar_event_id,report_item_id_ref,metadata')
+    .select('id,operation_id_ref,operation_id,technician_email,schedule_control_status,calendar_sync_status,calendar_event_id,report_item_id_ref,task_type,planned_date,planned_datetime,metadata')
     .order('id', { ascending: true })
 
   if (scheduleEntriesResult.error) {
@@ -813,7 +852,7 @@ export async function readRuntimeClientsAndFacilities(client: any, knownSecrets:
     .select('id,code,severity,operation_id,schedule_entry_id,report_id,technician_email,message,metadata,created_at')
     .order('created_at', { ascending: false })
 
-  const usersResult = await client.from('users').select('email,display_name,role,approval').order('email', { ascending: true })
+  const usersResult = await client.from('users').select('email,display_name,role,approval,employee_status,can_team,can_calendar,can_clients,can_equipment,can_assistant,can_ai_ask').order('email', { ascending: true })
 
   if (reportsResult.error) {
     throw new Error(`SUPABASE_RUNTIME_READ_FAILED: ${sanitizeRuntimeErrorMessage(reportsResult.error.message, knownSecrets)}`)
