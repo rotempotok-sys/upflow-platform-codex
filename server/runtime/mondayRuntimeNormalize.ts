@@ -42,11 +42,19 @@ export interface RuntimeUserSnapshotRow {
   displayName: string
   role: string | null
   approval: string | null
+  employeeStatus: string | null
+  canTeam: boolean
+  canCalendar: boolean
+  canClients: boolean
+  canEquipment: boolean
+  canAssistant: boolean
+  canAiAsk: boolean
   metadata: Record<string, unknown>
 }
 
 export interface RuntimeOperationSnapshotRow {
   id: string
+  name: string | null
   shortOperationId: string | null
   requestPurposeRaw: string | null
   operationCategory: string | null
@@ -418,6 +426,21 @@ function getColumnText(item: MondayItem, columnId: string) {
   return ''
 }
 
+function getColumnBoolean(item: MondayItem, columnId: string): boolean {
+  const column = getColumn(item, columnId)
+  if (!column) return false
+  try {
+    const raw = typeof column.value === 'string' ? JSON.parse(column.value) : column.value
+    if (raw && typeof raw === 'object' && 'checked' in raw) {
+      return String((raw as Record<string, unknown>).checked) === 'true'
+    }
+  } catch {
+    // ignore parse errors
+  }
+  const text = normalizedText(column.text ?? column.display_value ?? '')
+  return text === 'true' || text === '✓' || text === 'v'
+}
+
 function getColumnRawValue(item: MondayItem, columnId: string) {
   const column = getColumn(item, columnId)
   return column?.value ?? null
@@ -614,12 +637,12 @@ function normalizeOperationCategory(requestPurposeRaw: string): string {
   const value = normalizedText(requestPurposeRaw).toLowerCase()
 
   if (!value) return 'General'
-  if (value.includes('׳©׳™׳¨׳•׳×') || value.includes('׳×׳—׳–׳•׳§׳”') || value.includes('service')) return 'Service'
-  if (value.includes('׳׳•׳’׳™׳¡׳˜׳™׳§׳”') || value.includes('׳׳¡׳™׳¨׳×') || value.includes('logistics')) return 'Logistics'
-  if (value.includes('׳₪׳¨׳•׳™׳§׳˜') || value.includes('׳”׳§׳׳”') || value.includes('project')) return 'Project'
-  if (value.includes('׳¨׳›׳©') || value.includes('procurement')) return 'Procurement'
-  if (value.includes('׳׳›׳™׳¨׳”') || value.includes('sales')) return 'Sales'
-  if (value.includes('׳×׳™׳§׳•׳') || value.includes('repair')) return 'Repair'
+  if (value.includes('\u05e9\u05d9\u05e8\u05d5\u05ea') || value.includes('\u05ea\u05d7\u05d6\u05d5\u05e7\u05d4') || value.includes('service')) return 'Service'
+  if (value.includes('\u05dc\u05d5\u05d2\u05d9\u05e1\u05d8\u05d9\u05e7\u05d4') || value.includes('\u05de\u05e1\u05d9\u05e8\u05ea') || value.includes('logistics')) return 'Logistics'
+  if (value.includes('\u05e4\u05e8\u05d5\u05d9\u05e7\u05d8') || value.includes('\u05d4\u05e7\u05de\u05d4') || value.includes('project')) return 'Project'
+  if (value.includes('\u05e8\u05db\u05e9') || value.includes('procurement')) return 'Procurement'
+  if (value.includes('\u05de\u05db\u05d9\u05e8\u05d5\u05ea') || value.includes('\u05e4\u05e0\u05d9\u05d9\u05d4 \u05dc\u05de\u05db\u05d9\u05e8\u05d5\u05ea') || value.includes('sales')) return 'Sales'
+  if (value.includes('\u05ea\u05d9\u05e7\u05d5\u05df') || value.includes('repair')) return 'Repair'
 
   return 'General'
 }
@@ -966,6 +989,13 @@ export function normalizeUsersFromAuthBoard(
       displayName: normalizedText(item.name) || email,
       role,
       approval: approval || null,
+      employeeStatus: employeeStatus || null,
+      canTeam: getColumnBoolean(item, mapping.columns.auth.teamToggle),
+      canCalendar: getColumnBoolean(item, mapping.columns.auth.calendarToggle),
+      canClients: getColumnBoolean(item, mapping.columns.auth.clientsToggle),
+      canEquipment: getColumnBoolean(item, mapping.columns.auth.equipmentToggle),
+      canAssistant: getColumnBoolean(item, mapping.columns.auth.assistantToggle),
+      canAiAsk: getColumnBoolean(item, mapping.columns.auth.aiAskToggle),
       metadata: {
         mondayBoardId: board.id,
         mondayItemId: item.id,
@@ -1212,6 +1242,7 @@ export function normalizeOperationsFromBoard(input: {
 
     operations.push({
       id: operationId,
+      name: normalizedText(item.name) || null,
       shortOperationId,
       requestPurposeRaw,
       operationCategory,

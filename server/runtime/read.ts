@@ -345,9 +345,9 @@ function mapClient(row: RuntimeClientRow): RuntimeClientSnapshot {
   return {
     id: String(row.id),
     name: String(row.name ?? '').trim(),
-    facilityType: String(row.facility_type ?? '').trim() || '׳׳ ׳”׳•׳’׳“׳¨',
-    facilityStatus: String(row.facility_status ?? '').trim() || '׳׳ ׳”׳•׳’׳“׳¨',
-    contractType: String(row.contract_type ?? '').trim() || '׳׳ ׳”׳•׳’׳“׳¨',
+    facilityType: String(row.facility_type ?? '').trim() || 'לא הוגדר',
+    facilityStatus: String(row.facility_status ?? '').trim() || 'לא הוגדר',
+    contractType: String(row.contract_type ?? '').trim() || 'לא הוגדר',
     openTickets: Number.isFinite(Number(row.open_tickets ?? 0)) ? Number(row.open_tickets ?? 0) : 0,
     city: String(row.city ?? '').trim(),
     group: String(row.group_name ?? '').trim() || '??? ?????',

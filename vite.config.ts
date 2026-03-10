@@ -278,7 +278,7 @@ function extractFileLinks(question: string, context: string) {
       found.push({
         source: linkSource(url),
         url,
-        facility: currentFacility || '׳׳׳ ׳©׳™׳•׳ ׳׳×׳§׳',
+        facility: currentFacility || '׳׳׳ ׳©׳™׳•׳ מתקן',
         column: column || '׳׳׳ ׳©׳ ׳¢׳׳•׳“׳”',
         contextLine: line.slice(0, 220),
         score,
@@ -310,7 +310,7 @@ function buildFileLinksContext(question: string, context: string) {
 
   const lines = ordered.map((entry) => {
     const sourceLabel = entry.source === 'monday' ? 'Monday' : entry.source === 'google_drive' ? 'Google Drive' : '׳׳—׳¨'
-    return `- ׳׳§׳•׳¨: ${sourceLabel} | ׳׳×׳§׳: ${entry.facility} | ׳©׳“׳”: ${entry.column} | ׳§׳™׳©׳•׳¨: ${entry.url}`
+    return `- ׳׳§׳•׳¨: ${sourceLabel} | מתקן: ${entry.facility} | ׳©׳“׳”: ${entry.column} | ׳§׳™׳©׳•׳¨: ${entry.url}`
   })
 
   return ['׳׳™׳ ׳“׳§׳¡ ׳§׳™׳©׳•׳¨׳™ ׳§׳‘׳¦׳™׳ ׳©׳—׳•׳׳¥ ׳׳”׳ ׳×׳•׳ ׳™׳:', ...lines].join('\n')
@@ -498,7 +498,7 @@ function chooseModels(question: string, simpleModel: string, complexModel: strin
   ]
 
   const multiTopicSignals = [
-    ['׳׳×׳§׳', '׳׳×׳§׳ ׳™׳', 'facility'],
+    ['מתקן', '׳׳×׳§׳ ׳™׳', 'facility'],
     ['׳׳§׳•׳—', '׳׳§׳•׳—׳•׳×', 'client'],
     ['׳׳©׳™׳׳”', '׳׳©׳™׳׳•׳×', 'task'],
     ['׳˜׳›׳ ׳׳™', '׳˜׳›׳ ׳׳™׳', 'technician', 'team'],
@@ -681,26 +681,26 @@ function normalizeClientsBoard(board: any, facilitiesRelationColumnId: string): 
     const city =
       pickColumnText(columns, {
         ids: ['text_mkna2fph', '______________'],
-        titleIncludes: ['׳™׳©׳•׳‘', '׳™׳™׳©׳•׳‘', '׳©׳ ׳”׳¢׳¡׳§', '׳”׳™׳©׳•׳‘', '׳׳™׳§׳•׳'],
+        titleIncludes: ['ישוב', 'יישוב', 'שם העסק', 'הישוב', 'מיקום'],
       }) || asNonEmpty(item.name)
 
     const facilityType =
       pickColumnText(columns, {
         ids: ['_____________'],
-        titleIncludes: ['׳¡׳•׳’ ׳׳×׳§׳', '׳׳×׳§׳'],
-      }) || '׳׳ ׳”׳•׳’׳“׳¨'
+        titleIncludes: ['סוג מתקן', 'מתקן'],
+      }) || 'לא הוגדר'
 
     const facilityStatus =
       pickColumnText(columns, {
         ids: ['color__1'],
-        titleIncludes: ['׳¡׳˜׳˜׳•׳¡ ׳׳×׳§׳', '׳¡׳˜׳˜׳•׳¡'],
-      }) || '׳׳ ׳”׳•׳’׳“׳¨'
+        titleIncludes: ['סטטוס מתקן', 'סטטוס'],
+      }) || 'לא הוגדר'
 
     const contractType =
       pickColumnText(columns, {
         ids: ['status'],
-        titleIncludes: ['׳¡׳•׳’ ׳—׳•׳–׳” ׳©׳™׳¨׳•׳×', '׳—׳•׳–׳”', '׳©׳™׳¨׳•׳×', '׳—׳‘׳™׳׳”'],
-      }) || '׳׳ ׳”׳•׳’׳“׳¨'
+        titleIncludes: ['סוג חוזה שירות', 'חוזה', 'שירות', 'חבילה'],
+      }) || 'לא הוגדר'
 
     return {
       id: String(item.id),
@@ -710,7 +710,7 @@ function normalizeClientsBoard(board: any, facilitiesRelationColumnId: string): 
       contractType,
       openTickets: 0,
       city,
-      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || '׳׳׳ ׳§׳‘׳•׳¦׳”',
+      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || 'ללא קבוצה',
       facilitiesRelationIds: (() => {
         const relationColumn = columns.find((column) => column.id === facilitiesRelationColumnId)
         if (relationColumn?.relationIds?.length) return relationColumn.relationIds
@@ -733,23 +733,23 @@ function normalizeEquipmentBoard(board: any): MondayFacilityRecord[] {
     const city =
       pickColumnText(columns, {
         ids: ['text_mkna2fph'],
-        titleIncludes: ['׳™׳™׳©׳•׳‘', '׳™׳©׳•׳‘', '׳¢׳™׳¨', '׳׳™׳§׳•׳'],
+        titleIncludes: ['יישוב', 'ישוב', 'עיר', 'מיקום'],
       }) || asNonEmpty(item.name)
 
     const facilityType =
       pickColumnText(columns, {
-        titleIncludes: ['׳¡׳•׳’ ׳”׳׳×׳§׳', '׳¡׳•׳’ ׳׳×׳§׳', '׳׳×׳§׳'],
-      }) || '׳׳ ׳”׳•׳’׳“׳¨'
+        titleIncludes: ['סוג המתקן', 'סוג מתקן', 'מתקן'],
+      }) || 'לא הוגדר'
 
     const facilityStatus =
       pickColumnText(columns, {
-        titleIncludes: ['׳¡׳˜׳˜׳•׳¡ ׳׳×׳§׳', '׳¡׳˜׳˜׳•׳¡'],
-      }) || '׳׳ ׳”׳•׳’׳“׳¨'
+        titleIncludes: ['סטטוס מתקן', 'סטטוס'],
+      }) || 'לא הוגדר'
 
     const contractType =
       pickColumnText(columns, {
-        titleIncludes: ['׳¡׳•׳’ ׳—׳•׳–׳” ׳©׳™׳¨׳•׳×', '׳—׳•׳–׳” ׳©׳™׳¨׳•׳×', '׳—׳•׳–׳”'],
-      }) || '׳׳ ׳”׳•׳’׳“׳¨'
+        titleIncludes: ['סוג חוזה שירות', 'חוזה שירות', 'חוזה'],
+      }) || 'לא הוגדר'
 
     return {
       id: String(item.id),
@@ -759,7 +759,7 @@ function normalizeEquipmentBoard(board: any): MondayFacilityRecord[] {
       contractType,
       openTickets: 0,
       city,
-      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || '׳׳׳ ׳§׳‘׳•׳¦׳”',
+      group: asNonEmpty(item.group?.title) || asNonEmpty(item.group?.id) || 'ללא קבוצה',
       columns,
     }
   })
