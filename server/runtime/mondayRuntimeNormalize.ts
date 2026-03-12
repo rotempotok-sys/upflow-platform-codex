@@ -768,12 +768,12 @@ function normalizePlannedDate(raw: string): string | null {
   }
 
   // Monday Display: "Mar 11" or "11 Mar" or "Mar 11, 2026"
-  // This is a bit more complex, using native Date as a helper but being careful
+  // Use UTC methods to avoid timezone-shifting the date (e.g. UTC midnight → local -N hours → previous day)
   const asDate = new Date(value)
   if (!Number.isNaN(asDate.getTime())) {
-    const year = asDate.getFullYear()
-    const month = String(asDate.getMonth() + 1).padStart(2, '0')
-    const day = String(asDate.getDate()).padStart(2, '0')
+    const year = asDate.getUTCFullYear()
+    const month = String(asDate.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(asDate.getUTCDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
   }
 
@@ -790,9 +790,16 @@ function normalizeIsoDateTime(raw: string): string | null {
     return asDate.toISOString()
   }
 
-  // Special handling for Monday's "Mar 11, 09:00 AM" if native fails
-  // (though native usually handles this if it can understand the month name)
-  
+  // Special handling for Monday's "Mar 11, 09:00 AM" or "Mar 11 09:00 AM"
+  const mondayDisplayMatch = /^([A-Za-z]{3})\s+(\d{1,2})(?:,\s*|\s+)(\d{1,2}):(\d{2})\s*(AM|PM)?$/i.exec(value)
+  if (mondayDisplayMatch) {
+    const [, month, day, hours, minutes, ampm] = mondayDisplayMatch
+    const currentYear = new Date().getUTCFullYear()
+    const dateStr = `${month} ${day}, ${currentYear} ${hours}:${minutes} ${ampm ?? 'AM'}`
+    const parsed = new Date(dateStr)
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+
   return null
 }
 
@@ -840,6 +847,26 @@ function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory
   }
 
 
+  // PRIMARY: Monday's explicit date column (date4) — set directly by the scheduler, always reliable ISO format
+  const mondayDate = normalizePlannedDate(getColumnText(item, mapping.columns.schedule.plannedDate))
+
+  if (mondayDate) {
+    // Enhance with time from integration column if it matches the same day
+    let calendarDateTime = extractDateTimeCandidate(calendarText)
+    if (!calendarDateTime) {
+      const rawText = String(calendarRaw ?? '').trim()
+      if (rawText) {
+        try { calendarDateTime = extractDateTimeCandidate(JSON.parse(rawText)) } catch { calendarDateTime = extractDateTimeCandidate(rawText) }
+      }
+    }
+    if (calendarDateTime && calendarDateTime.startsWith(mondayDate)) {
+      // Calendar provides a more precise datetime for the same day — use it
+      return { plannedDate: mondayDate, plannedDateTime: calendarDateTime, calendarEventRef, calendarEventUrl, source: 'calendar' }
+    }
+    return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, calendarEventRef, calendarEventUrl, source: 'monday_date' }
+  }
+
+  // FALLBACK: Try to extract datetime from integration column (calendar cache)
   let plannedDateTime = extractDateTimeCandidate(calendarText)
   if (!plannedDateTime) {
     const rawText = String(calendarRaw ?? '').trim()
@@ -853,9 +880,6 @@ function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory
   }
 
   if (plannedDateTime) return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, calendarEventRef, calendarEventUrl, source: 'calendar' }
-
-  const mondayDate = normalizePlannedDate(getColumnText(item, mapping.columns.schedule.plannedDate))
-  if (mondayDate) return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, calendarEventRef, calendarEventUrl, source: 'monday_date' }
 
   return { plannedDate: null, plannedDateTime: null, calendarEventRef, calendarEventUrl, source: 'missing' }
 }
