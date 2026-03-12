@@ -514,14 +514,6 @@ export function ServiceTab({
                       {facilityName && (
                         <div style={{ fontSize: 10, color: '#8b6be8', margin: '2px 0' }}>🏢 {facilityName}</div>
                       )}
-                      {op.shortOperationId === '2662' && scheduleEntriesData.filter(s => s.operationId === op.id).map(s => (
-                        <div key={s.id} style={{ fontSize: 9, color: '#ff4d4f', borderTop: '1px solid rgba(255,0,0,0.2)', paddingTop: 2, marginTop: 2, whiteSpace: 'normal', lineHeight: 1.2 }}>
-                          DEBUG [2662]: <br/>
-                          monday_date: {s.plannedDate} <br/>
-                          calendarEventRef: {s.calendarEventRef || 'none'} <br/>
-                          matched: {eventByOpId.findEventStr(s.calendarEventRef)?.id || 'NO'}
-                        </div>
-                      ))}
                     </td>
                     {/* מטרת הפניה */}
                     <td style={{ padding: '8px 10px', color: '#aaa', whiteSpace: 'nowrap', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}>
