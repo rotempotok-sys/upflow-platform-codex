@@ -814,14 +814,27 @@ function extractDateTimeCandidate(raw: unknown): string | null {
   }
   if (!raw || typeof raw !== 'object') return null
   const obj = raw as Record<string, unknown>
-  const keys = ['startDateTime', 'start_date_time', 'startDate', 'start_date', 'dateTime', 'date_time', 'start', 'from', 'date']
-  for (const key of keys) {
+  // Priority keys: Google Calendar API uses `dateTime` inside `start` object.
+  // Monday integration column may wrap this differently — check common patterns first.
+  const priorityKeys = [
+    'startDateTime', 'start_date_time',       // Monday mirror keys
+    'startDate', 'start_date',                 // date-only variants
+    'dateTime', 'date_time',                   // Google Calendar: start.dateTime
+    'start', 'from',                           // Google Calendar: event.start (object or string)
+    'date',                                    // date-only field
+    'scheduledAt', 'scheduled_at',             // generic scheduled time
+    'eventStart', 'event_start',               // generic event fields
+  ]
+  for (const key of priorityKeys) {
     const candidate = extractDateTimeCandidate(obj[key])
     if (candidate) return candidate
   }
+  // Recursive walk for nested objects (e.g. Monday integration wraps Google data)
   for (const value of Object.values(obj)) {
-    const candidate = extractDateTimeCandidate(value)
-    if (candidate) return candidate
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const candidate = extractDateTimeCandidate(value)
+      if (candidate) return candidate
+    }
   }
   return null
 }
@@ -847,39 +860,30 @@ function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory
   }
 
 
-  // PRIMARY: Monday's explicit date column (date4) — set directly by the scheduler, always reliable ISO format
-  const mondayDate = normalizePlannedDate(getColumnText(item, mapping.columns.schedule.plannedDate))
+  // PRIMARY: Google Calendar — read from the raw JSON value of the integration column.
+  // The raw `value` JSON is updated in real-time by Monday's Google Calendar sync,
+  // whereas `display_value` / `text` can be stale (cached before a calendar move).
+  let plannedDateTime: string | null = null
+  const rawText = String(calendarRaw ?? '').trim()
+  if (rawText) {
+    try {
+      plannedDateTime = extractDateTimeCandidate(JSON.parse(rawText))
+    } catch {
+      // Not JSON — attempt plain string parse
+      plannedDateTime = extractDateTimeCandidate(rawText)
+    }
+  }
 
+  if (plannedDateTime) {
+    return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, calendarEventRef, calendarEventUrl, source: 'calendar' }
+  }
+
+  // SECONDARY: Monday's explicit date column (date4) — reliable ISO format, set by the scheduler.
+  // Used when the integration column has no parseable datetime (e.g. event not yet linked).
+  const mondayDate = normalizePlannedDate(getColumnText(item, mapping.columns.schedule.plannedDate))
   if (mondayDate) {
-    // Enhance with time from integration column if it matches the same day
-    let calendarDateTime = extractDateTimeCandidate(calendarText)
-    if (!calendarDateTime) {
-      const rawText = String(calendarRaw ?? '').trim()
-      if (rawText) {
-        try { calendarDateTime = extractDateTimeCandidate(JSON.parse(rawText)) } catch { calendarDateTime = extractDateTimeCandidate(rawText) }
-      }
-    }
-    if (calendarDateTime && calendarDateTime.startsWith(mondayDate)) {
-      // Calendar provides a more precise datetime for the same day — use it
-      return { plannedDate: mondayDate, plannedDateTime: calendarDateTime, calendarEventRef, calendarEventUrl, source: 'calendar' }
-    }
     return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, calendarEventRef, calendarEventUrl, source: 'monday_date' }
   }
-
-  // FALLBACK: Try to extract datetime from integration column (calendar cache)
-  let plannedDateTime = extractDateTimeCandidate(calendarText)
-  if (!plannedDateTime) {
-    const rawText = String(calendarRaw ?? '').trim()
-    if (rawText) {
-      try {
-        plannedDateTime = extractDateTimeCandidate(JSON.parse(rawText))
-      } catch {
-        plannedDateTime = extractDateTimeCandidate(rawText)
-      }
-    }
-  }
-
-  if (plannedDateTime) return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, calendarEventRef, calendarEventUrl, source: 'calendar' }
 
   return { plannedDate: null, plannedDateTime: null, calendarEventRef, calendarEventUrl, source: 'missing' }
 }
