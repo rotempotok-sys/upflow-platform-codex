@@ -549,6 +549,7 @@ function App() {
               operationsData={operations}
               exceptionsData={exceptions}
               scheduleEntriesData={scheduleEntries}
+              reportsData={reports}
               usersData={users}
               projectionsData={projections}
               isLoading={syncState === 'syncing' && operations.length === 0}

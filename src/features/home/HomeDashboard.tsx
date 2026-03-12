@@ -7,6 +7,7 @@ import { LogisticsTab } from './tabs/LogisticsTab'
 import type {
   RuntimeExceptionSnapshot,
   RuntimeOperationSnapshot,
+  RuntimeReportSnapshot,
   RuntimeScheduleEntrySnapshot,
   RuntimeUserSnapshot,
   RuntimeOperationalProjections,
@@ -18,6 +19,7 @@ interface HomeDashboardProps {
   operationsData: RuntimeOperationSnapshot[]
   exceptionsData: RuntimeExceptionSnapshot[]
   scheduleEntriesData: RuntimeScheduleEntrySnapshot[]
+  reportsData: RuntimeReportSnapshot[]
   usersData: RuntimeUserSnapshot[]
   projectionsData: RuntimeOperationalProjections | null
   isLoading?: boolean
@@ -196,6 +198,7 @@ function ManagerDashboard({
   operationsData,
   exceptionsData,
   scheduleEntriesData,
+  reportsData,
   usersData,
   projectionsData,
 }: Omit<HomeDashboardProps, 'currentUserEmail' | 'currentUserRole' | 'isLoading' | 'facilitiesData'>) {
@@ -204,12 +207,13 @@ function ManagerDashboard({
   return (
     <div style={{ padding: '0 4px', display: 'flex', flexDirection: 'column' }}>
       <TabsNavigation activeTab={activeTab} onTabChange={setActiveTab} />
-      
+
       {activeTab === 'service' && (
         <ServiceTab
           operationsData={operationsData}
           exceptionsData={exceptionsData}
           scheduleEntriesData={scheduleEntriesData}
+          reportsData={reportsData}
           usersData={usersData}
           projectionsData={projectionsData}
         />
@@ -449,6 +453,7 @@ export function HomeDashboard({
   operationsData,
   exceptionsData,
   scheduleEntriesData,
+  reportsData,
   usersData,
   projectionsData,
   isLoading,
@@ -471,6 +476,7 @@ export function HomeDashboard({
       operationsData={operationsData}
       exceptionsData={exceptionsData}
       scheduleEntriesData={scheduleEntriesData}
+      reportsData={reportsData}
       usersData={usersData}
       projectionsData={projectionsData}
     />

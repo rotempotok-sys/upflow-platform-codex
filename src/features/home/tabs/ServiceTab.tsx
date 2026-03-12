@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type {
   RuntimeOperationSnapshot,
   RuntimeExceptionSnapshot,
+  RuntimeReportSnapshot,
   RuntimeScheduleEntrySnapshot,
   RuntimeUserSnapshot,
   RuntimeOperationalProjections,
@@ -20,6 +21,7 @@ type SortCol =
   | 'eventDate'
   | 'businessStatus'
   | 'executionStatus'
+  | 'reportStatus'
   | 'techName'
 
 interface RowData {
@@ -28,6 +30,7 @@ interface RowData {
   eventDateRaw: string
   eventDateDisplay: string
   facilityName: string
+  reportStatus: string | null
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -56,6 +59,7 @@ function sortRows(rows: RowData[], col: SortCol, dir: SortDir): RowData[] {
     else if (col === 'eventDate') { va = a.eventDateRaw; vb = b.eventDateRaw }
     else if (col === 'businessStatus') { va = a.op.businessStatus ?? ''; vb = b.op.businessStatus ?? '' }
     else if (col === 'executionStatus') { va = a.op.executionStatus ?? ''; vb = b.op.executionStatus ?? '' }
+    else if (col === 'reportStatus') { va = a.reportStatus ?? ''; vb = b.reportStatus ?? '' }
     else if (col === 'techName') { va = a.techName; vb = b.techName }
     const cmp = va.localeCompare(vb, 'he')
     return dir === 'asc' ? cmp : -cmp
@@ -154,12 +158,14 @@ export function ServiceTab({
   operationsData,
   exceptionsData,
   scheduleEntriesData,
+  reportsData,
   usersData,
   projectionsData,
 }: {
   operationsData: RuntimeOperationSnapshot[]
   exceptionsData: RuntimeExceptionSnapshot[]
   scheduleEntriesData: RuntimeScheduleEntrySnapshot[]
+  reportsData: RuntimeReportSnapshot[]
   usersData: RuntimeUserSnapshot[]
   projectionsData: RuntimeOperationalProjections | null
 }) {
@@ -178,6 +184,7 @@ export function ServiceTab({
   const [fDate, setFDate] = useState('')
   const [fBizStatus, setFBizStatus] = useState('')
   const [fExecStatus, setFExecStatus] = useState('')
+  const [fReportStatus, setFReportStatus] = useState('')
   const [fTech, setFTech] = useState('')
 
   // ─── Lookup maps ───────────────────────────────────────────────
@@ -320,16 +327,30 @@ export function ServiceTab({
     return unmapped
   }, [events, eventByOpId])
 
-  // operationId → schedule status (from schedule board's 'status' column)
+  // operationId → schedule status — take the entry with the latest plannedDate
   const scheduleStatusByOpId = useMemo(() => {
-    const m = new Map<string, string>()
+    const best = new Map<string, { date: string; status: string }>()
     for (const s of scheduleEntriesData) {
-      if (s.operationId && s.scheduleStatus && !m.has(s.operationId)) {
-        m.set(s.operationId, s.scheduleStatus)
+      if (!s.operationId || !s.scheduleStatus) continue
+      const date = s.plannedDate ?? s.plannedDateTime?.slice(0, 10) ?? ''
+      const current = best.get(s.operationId)
+      if (!current || date > current.date) {
+        best.set(s.operationId, { date, status: s.scheduleStatus })
       }
     }
+    const m = new Map<string, string>()
+    for (const [opId, { status }] of best) m.set(opId, status)
     return m
   }, [scheduleEntriesData])
+
+  // operationId → report flowStatus (latest report per operation)
+  const reportStatusByOpId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const r of reportsData) {
+      if (r.operationId && r.flowStatus) m.set(r.operationId, r.flowStatus)
+    }
+    return m
+  }, [reportsData])
 
   const facilityByOpId = useMemo(() => {
     const m = new Map<string, string>()
@@ -360,15 +381,17 @@ export function ServiceTab({
         eventDateRaw: event?.raw ?? '',
         eventDateDisplay: event?.display ?? '',
         facilityName: facilityByOpId.get(op.id) ?? '',
+        reportStatus: reportStatusByOpId.get(op.id) ?? null,
       }
     })
     return [...mondayRows, ...syntheticOps]
-  }, [serviceOps, techByEmail, eventByOpId, facilityByOpId, syntheticOps])
+  }, [serviceOps, techByEmail, eventByOpId, facilityByOpId, reportStatusByOpId, syntheticOps])
 
   // ─── Filter options ────────────────────────────────────────────
   const purposeOptions = useMemo(() => uniq(rows.map(r => r.op.requestPurposeRaw ?? '')), [rows])
   const bizOptions = useMemo(() => uniq(rows.map(r => r.op.businessStatus ?? '')), [rows])
   const execOptions = useMemo(() => uniq([...scheduleStatusByOpId.values()]), [scheduleStatusByOpId])
+  const reportStatusOptions = useMemo(() => uniq(rows.map(r => r.reportStatus ?? '')), [rows])
   const techOptions = useMemo(() => uniq(rows.map(r => r.techName)), [rows])
 
   // ─── Filtered + sorted ─────────────────────────────────────────
@@ -381,9 +404,10 @@ export function ServiceTab({
     if (fDate) out = out.filter(r => r.eventDateDisplay.includes(fDate))
     if (fBizStatus) out = out.filter(r => r.op.businessStatus === fBizStatus)
     if (fExecStatus) out = out.filter(r => (scheduleStatusByOpId.get(r.op.id) ?? '') === fExecStatus)
+    if (fReportStatus) out = out.filter(r => (r.reportStatus ?? '') === fReportStatus)
     if (fTech) out = out.filter(r => r.techName === fTech)
     return sortCol ? sortRows(out, sortCol, sortDir) : out
-  }, [rows, fId, fTitle, fPurpose, fContent, fDate, fBizStatus, fExecStatus, fTech, sortCol, sortDir])
+  }, [rows, fId, fTitle, fPurpose, fContent, fDate, fBizStatus, fExecStatus, fReportStatus, fTech, sortCol, sortDir])
 
   function handleSort(col: SortCol) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -392,7 +416,7 @@ export function ServiceTab({
 
   function resetFilters() {
     setFId(''); setFTitle(''); setFPurpose(''); setFContent('')
-    setFDate(''); setFBizStatus(''); setFExecStatus(''); setFTech('')
+    setFDate(''); setFBizStatus(''); setFExecStatus(''); setFReportStatus(''); setFTech('')
     setSortCol(null)
   }
 
@@ -412,7 +436,7 @@ export function ServiceTab({
     ORPHAN_SCHEDULE_ENTRY: 'תיזמון עצמאי', ORPHAN_REPORT: 'דוח עצמאי',
   }
 
-  const activeFilters = [fId, fTitle, fPurpose, fContent, fDate, fBizStatus, fExecStatus, fTech, sortCol].filter(Boolean).length
+  const activeFilters = [fId, fTitle, fPurpose, fContent, fDate, fBizStatus, fExecStatus, fReportStatus, fTech, sortCol].filter(Boolean).length
 
   return (
     <>
@@ -472,6 +496,9 @@ export function ServiceTab({
                 <Th label="סטטוס משימה" col="executionStatus" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>
                   <FilterSelect value={fExecStatus} options={execOptions} onChange={setFExecStatus} />
                 </Th>
+                <Th label="סטטוס דיווח" col="reportStatus" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>
+                  <FilterSelect value={fReportStatus} options={reportStatusOptions} onChange={setFReportStatus} />
+                </Th>
                 <Th label="טכנאי" col="techName" sortCol={sortCol} sortDir={sortDir} onSort={handleSort}>
                   <FilterSelect value={fTech} options={techOptions} onChange={setFTech} />
                 </Th>
@@ -480,12 +507,12 @@ export function ServiceTab({
             <tbody>
               {filteredRows.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '32px 0', color: '#555', fontSize: 13 }}>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: '32px 0', color: '#555', fontSize: 13 }}>
                     אין נתונים תואמים לסינון
                   </td>
                 </tr>
               )}
-              {filteredRows.map(({ op, techName, eventDateDisplay, facilityName }) => {
+              {filteredRows.map(({ op, techName, eventDateDisplay, facilityName, reportStatus }) => {
                 const isDelayed = op.executionStatus === 'Exception' || op.businessStatus === 'Delayed'
                 const isUnassigned = !op.assignedTechnicianEmail
                 return (
@@ -559,6 +586,16 @@ export function ServiceTab({
                           }}>{sched}</span>
                         )
                       })()}
+                    </td>
+                    {/* סטטוס דיווח */}
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                      {reportStatus ? (
+                        <span style={{
+                          fontSize: 11, borderRadius: 4, padding: '1px 7px',
+                          background: reportStatus.includes('בוצע') ? 'rgba(82,196,26,0.1)' : 'rgba(255,255,255,0.06)',
+                          color: reportStatus.includes('בוצע') ? '#52c41a' : '#bbb',
+                        }}>{reportStatus}</span>
+                      ) : <span style={{ color: '#444' }}>—</span>}
                     </td>
                     {/* טכנאי */}
                     <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
@@ -637,7 +674,7 @@ export function ServiceTab({
                     if (!op) {
                       return (
                         <tr key={ex.id || idx} className="svc-row">
-                          <td colSpan={8} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#888' }}>
+                          <td colSpan={9} style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: '#888' }}>
                             <span style={{ fontSize: 11, background: `${SEVERITY_COLOR[ex.severity as string] ?? '#444'}20`, color: SEVERITY_COLOR[ex.severity as string] ?? '#aaa', padding: '2px 6px', borderRadius: 4, marginRight: 8 }}>
                               {EXCEPTION_CODE_LABEL[ex.code as string] ?? ex.code}
                             </span>
