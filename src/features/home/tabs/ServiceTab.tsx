@@ -322,6 +322,7 @@ export function ServiceTab({
         eventDateRaw: ceDate,
         eventDateDisplay: displayDate,
         facilityName: e.location || '',
+        reportStatus: null,
       })
     }
     return unmapped
