@@ -165,8 +165,8 @@ export function ServiceTab({
 }) {
   const todayStr = today()
   const [selectedOp, setSelectedOp] = useState<RuntimeOperationSnapshot | null>(null)
-  const [sortCol, setSortCol] = useState<SortCol | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [sortCol, setSortCol] = useState<SortCol | null>('eventDate')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const { events, isLoading: isCalendarLoading, error: calendarError } = useGoogleCalendarEvents()
 
