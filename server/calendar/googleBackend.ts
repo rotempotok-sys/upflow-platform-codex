@@ -1,23 +1,26 @@
 import { google } from 'googleapis'
 
-export async function fetchGoogleCalendarEventsByRefs(
-  calendarId: string,
-  eventRefs: string[]
-): Promise<Map<string, { startDateTime: string; startDate: string }>> {
-  if (eventRefs.length === 0) return new Map()
+// --- Singleton auth client ---
+// Created once per process lifetime; googleapis auto-refreshes the access token
+// when it expires (~1 hour), so the connection stays alive indefinitely.
+let _calendarClient: ReturnType<typeof google.calendar> | null = null
+
+function getCalendarClient(): ReturnType<typeof google.calendar> | null {
+  if (_calendarClient) return _calendarClient
 
   const serviceAccountJsonStr = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
   if (!serviceAccountJsonStr) {
     console.warn('Backend GCal Sync: No GOOGLE_SERVICE_ACCOUNT_JSON provided in .env.local')
-    return new Map() // return empty if no SA attached
+    return null
   }
 
-  let credentials;
+  let credentials: object
   try {
-    credentials = JSON.parse(serviceAccountJsonStr)
+    // Support both raw JSON and escaped-newline strings (common in env vars)
+    credentials = JSON.parse(serviceAccountJsonStr.replace(/\\n/g, '\n'))
   } catch (err) {
     console.error('Backend GCal Sync: Invalid JSON in GOOGLE_SERVICE_ACCOUNT_JSON', err)
-    return new Map()
+    return null
   }
 
   const auth = new google.auth.GoogleAuth({
@@ -25,7 +28,19 @@ export async function fetchGoogleCalendarEventsByRefs(
     scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
   })
 
-  const calendar = google.calendar({ version: 'v3', auth })
+  _calendarClient = google.calendar({ version: 'v3', auth })
+  console.info('Backend GCal Sync: Calendar client initialised (singleton)')
+  return _calendarClient
+}
+
+export async function fetchGoogleCalendarEventsByRefs(
+  calendarId: string,
+  eventRefs: string[]
+): Promise<Map<string, { startDateTime: string; startDate: string }>> {
+  if (eventRefs.length === 0) return new Map()
+
+  const calendar = getCalendarClient()
+  if (!calendar) return new Map()
   const eventsMap = new Map<string, { startDateTime: string; startDate: string }>()
 
   // Since there is no "batch query by IDs" in v3, we'll fetch recently active events
