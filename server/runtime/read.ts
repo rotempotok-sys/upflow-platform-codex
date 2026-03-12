@@ -1,4 +1,4 @@
-﻿import { sanitizeRuntimeErrorMessage } from './security'
+import { sanitizeRuntimeErrorMessage } from './security'
 
 interface RuntimeClientRow {
   id: string
@@ -52,6 +52,7 @@ interface RuntimeOperationRow {
   request_purpose_raw: string | null
   operation_category: string | null
   is_open: boolean | null
+  operation_content: string | null
   metadata: Record<string, unknown> | null
 }
 
@@ -137,6 +138,8 @@ export interface RuntimeUserSnapshot {
 export interface RuntimeOperationSnapshot {
   id: string
   shortOperationId: string | null
+  title: string | null
+  operationContent: string | null
   requestPurposeRaw: string | null
   operationCategory: string | null
   businessStatus: string | null
@@ -389,6 +392,8 @@ function mapOperation(row: RuntimeOperationRow): RuntimeOperationSnapshot {
   return {
     id: String(row.id ?? '').trim(),
     shortOperationId: String(row.short_operation_id ?? '').trim() || null,
+    title: String(row.title ?? '').trim() || null,
+    operationContent: String(row.operation_content ?? '').trim() || null,
     requestPurposeRaw,
     operationCategory,
     businessStatus: String(row.business_status ?? metadata.businessStatus ?? '').trim() || null,
@@ -816,7 +821,7 @@ export async function readRuntimeClientsAndFacilities(client: any, knownSecrets:
 
   const operationsResult = await client
     .from('operations')
-    .select('id,short_operation_id,title,client_id,facility_id,assigned_technician_email,business_status,operation_group_status,execution_status,request_purpose_raw,operation_category,is_open,metadata')
+    .select('id,short_operation_id,title,operation_content,client_id,facility_id,assigned_technician_email,business_status,operation_group_status,execution_status,request_purpose_raw,operation_category,is_open,metadata')
     .order('id', { ascending: true })
 
   if (operationsResult.error) {

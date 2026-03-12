@@ -1,4 +1,4 @@
-﻿import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import type { IncomingMessage } from 'node:http'
 import path from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
@@ -14,6 +14,7 @@ import { normalizeOperationsFromBoard, normalizeReportsFromBoard, normalizeSched
 import { buildRuntimeOperationalProjections, readLatestRuntimeSyncRun, readRuntimeClientsAndFacilities } from './server/runtime/read'
 import { sanitizeRuntimeErrorMessage } from './server/runtime/security'
 import { computeCanonicalRuntimeExceptions } from './server/runtime/exceptions'
+import { fetchGoogleCalendarEventsByRefs } from './server/calendar/googleBackend'
 
 interface ChatRequestBody {
   userId?: string
@@ -1088,6 +1089,34 @@ function attachApiMiddleware(
           runtimeUsers: usersSnapshot.users,
           mapping: mappingInventory,
         })
+
+        // ====== GOOGLE CALENDAR DIRECT BACKEND SYNC ======
+        const calendarRefsToFetch = Array.from(
+          new Set(
+            scheduleSnapshot.scheduleEntries
+              .map(s => s.calendarEventRef)
+              .filter((ref): ref is string => Boolean(ref))
+          )
+        )
+        const gcalCalendarId = process.env.VITE_GOOGLE_TARGET_CALENDAR_ID || 'upflow.operations@gmail.com'
+        const gcalEventsMap = await fetchGoogleCalendarEventsByRefs(gcalCalendarId, calendarRefsToFetch)
+        
+        // Mutate schedule entries with verified Google Dates
+        for (const entry of scheduleSnapshot.scheduleEntries) {
+          if (entry.calendarEventRef) {
+            const cleanRef = entry.calendarEventRef.toLowerCase()
+            const match = gcalEventsMap.get(cleanRef) || 
+                          gcalEventsMap.get(cleanRef.replace('@google.com', '')) ||
+                          Array.from(gcalEventsMap.entries()).find(([k]) => k.includes(cleanRef) || cleanRef.includes(k))?.[1]
+            
+            if (match) {
+              entry.plannedDate = match.startDate
+              entry.plannedDateTime = match.startDateTime
+              entry.plannedDateTimeSource = 'calendar'
+            }
+          }
+        }
+        // =================================================
         const reportsSnapshot = normalizeReportsFromBoard({
           reportsBoard,
           operations: operationsSnapshot.operations,

@@ -1,4 +1,4 @@
-﻿import { sanitizeRuntimeErrorMessage } from './security'
+import { sanitizeRuntimeErrorMessage } from './security'
 import type {
   RuntimeOperationAssignmentSnapshotRow,
   RuntimeOperationSnapshotRow,
@@ -182,6 +182,9 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
       request_purpose_raw: entry.requestPurposeRaw,
       operation_category: entry.operationCategory,
       is_open: entry.isOpen,
+      operation_content: entry.operationContent ?? null,
+      calendar_event_id: entry.calendarEventId ?? null,
+      calendar_event_url: entry.calendarEventUrl ?? null,
       source: 'monday',
       metadata: {
         ...entry.metadata,
@@ -201,6 +204,7 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
       schedule_control_status: entry.controlStatus,
       calendar_sync_status: entry.calendarSyncStatus,
       calendar_event_id: entry.calendarEventRef,
+      calendar_event_url: entry.calendarEventUrl ?? null,
       report_item_id_ref: entry.reportItemIdRef,
       task_type: entry.taskType ?? null,
       planned_date: entry.plannedDate ?? null,
@@ -263,21 +267,36 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
     if (clientRows.length > 0) {
       const upsertClients = await client.from('clients').upsert(clientRows, { onConflict: 'id' })
       if (upsertClients.error) throw new Error(`SUPABASE_CLIENT_UPSERT_FAILED: ${normalizeErrorMessage(upsertClients.error)}`)
+      
+      const clientIds = clientRows.map(r => r.id)
+      await client.from('clients').delete().not('id', 'in', clientIds).eq('source', 'monday')
     }
 
     if (facilityRows.length > 0) {
       const upsertFacilities = await client.from('facilities').upsert(facilityRows, { onConflict: 'id' })
       if (upsertFacilities.error) throw new Error(`SUPABASE_FACILITY_UPSERT_FAILED: ${normalizeErrorMessage(upsertFacilities.error)}`)
+      
+      const facilityIds = facilityRows.map(r => r.id)
+      await client.from('facilities').delete().not('id', 'in', facilityIds).eq('source', 'monday')
     }
 
     if (userRows.length > 0) {
       const upsertUsers = await client.from('users').upsert(userRows, { onConflict: 'email' })
       if (upsertUsers.error) throw new Error(`SUPABASE_USERS_UPSERT_FAILED: ${normalizeErrorMessage(upsertUsers.error)}`)
+      
+      // Note: we don't necessarily want to delete users from Supabase if they are missing from one specific sync 
+      // as they might be Admin/Operations users not on the sync boards.
+      // But for this project, we assume users are synced from the Auth board.
+      // Actually, let's play it safe and NOT delete users for now, or only delete if they have certain metadata.
+      // Decision: Skip user deletion for now to avoid locking out admins.
     }
 
     if (operationRows.length > 0) {
       const upsertOperations = await client.from('operations').upsert(operationRows, { onConflict: 'id' })
       if (upsertOperations.error) throw new Error(`SUPABASE_OPERATIONS_UPSERT_FAILED: ${normalizeErrorMessage(upsertOperations.error)}`)
+      
+      const operationIds = operationRows.map(r => r.id)
+      await client.from('operations').delete().not('id', 'in', operationIds).eq('source', 'monday')
     }
 
     if (scheduleEntryRows.length > 0) {
@@ -285,6 +304,9 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
       if (upsertScheduleEntries.error) {
         throw new Error(`SUPABASE_SCHEDULE_ENTRIES_UPSERT_FAILED: ${normalizeErrorMessage(upsertScheduleEntries.error)}`)
       }
+      
+      const scheduleIds = scheduleEntryRows.map(r => r.id)
+      await client.from('schedule_entries').delete().not('id', 'in', scheduleIds).eq('source', 'monday')
     }
 
     if (reportRows.length > 0) {
@@ -292,6 +314,9 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
       if (upsertReports.error) {
         throw new Error(`SUPABASE_REPORTS_UPSERT_FAILED: ${normalizeErrorMessage(upsertReports.error)}`)
       }
+      
+      const reportIds = reportRows.map(r => r.id)
+      await client.from('reports').delete().not('id', 'in', reportIds).eq('source', 'monday')
     }
 
     if (assignmentRows.length > 0) {
@@ -301,6 +326,12 @@ export async function persistRuntimeSnapshotToSupabase(client: any, payload: Run
       if (upsertAssignments.error) {
         throw new Error(`SUPABASE_ASSIGNMENTS_UPSERT_FAILED: ${normalizeErrorMessage(upsertAssignments.error)}`)
       }
+      
+      // For assignments, since it's a composite key, it's safer to just clear all source='monday' 
+      // and re-sync, but we already upserted. To avoid complex multi-column 'not in', 
+      // we can just clear and re-upsert if we want perfection, but upsert handles existing.
+      // Simplest: delete all source='monday' assignments that were NOT in the current sync.
+      // We'll skip this for now as it's secondary and risky without a clean composite key filter.
     }
 
     const clearRuntimeExceptions = await client.from('exceptions').delete().eq('source', 'runtime')

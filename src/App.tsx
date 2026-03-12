@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BlockedScreen } from './features/auth/BlockedScreen'
 import { LoginScreen, type LoginOutcome } from './features/auth/LoginScreen'
 import { NotAuthorizedScreen } from './features/auth/NotAuthorizedScreen'
@@ -75,7 +75,6 @@ interface AuthMePayload {
 }
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000
-const AUTH_SHELL_MARKER = 'AUTH SHELL V2 ACTIVE - 2026-03-07T06:25:00Z'
 
 const viewMeta: Record<ViewKey, { title: string; tag: string; permission: PermissionKey }> = {
   home: { title: 'בית', tag: 'Dashboard', permission: 'screen.clients' },
@@ -551,7 +550,6 @@ function App() {
               exceptionsData={exceptions}
               scheduleEntriesData={scheduleEntries}
               usersData={users}
-              facilitiesData={facilities}
               projectionsData={projections}
               isLoading={syncState === 'syncing' && operations.length === 0}
             />

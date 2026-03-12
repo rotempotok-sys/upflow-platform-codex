@@ -1,10 +1,12 @@
-﻿export interface MondayBoardIds {
+export interface MondayBoardIds {
   auth: string
   operations: string
   schedule: string
   reports: string
   clients: string
   equipment: string
+  sales: string
+  procurement: string
 }
 
 export interface MondayAuthColumns {
@@ -34,6 +36,7 @@ export interface MondayOperationsColumns {
   calendarEventMirror: string
   reportSequenceNumber: string
   executionStatusCheck: string
+  operationContent: string
 }
 
 export interface MondayClientsColumns {
@@ -63,6 +66,16 @@ export interface MondayReportsColumns {
   executedAt: string
 }
 
+export interface MondaySalesColumns {
+  shortOperationId: string
+  salesStatus: string
+}
+
+export interface MondayProcurementColumns {
+  shortOperationId: string
+  procurementStatus: string
+}
+
 export interface MondayIdentityMirrors {
   operationsTechnicianEmail: string
   scheduleTechnicianEmail: string
@@ -88,6 +101,8 @@ export interface MondayMappingInventory {
     clients: MondayClientsColumns
     schedule: MondayScheduleColumns
     reports: MondayReportsColumns
+    sales: MondaySalesColumns
+    procurement: MondayProcurementColumns
   }
   identityMirrors: MondayIdentityMirrors
   relations: MondayRelationKeys
@@ -101,6 +116,8 @@ export interface MondayMappingInventoryOverrides {
     clients?: Partial<MondayClientsColumns>
     schedule?: Partial<MondayScheduleColumns>
     reports?: Partial<MondayReportsColumns>
+    sales?: Partial<MondaySalesColumns>
+    procurement?: Partial<MondayProcurementColumns>
   }
 }
 
@@ -112,6 +129,8 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
     reports: '1282241018',
     clients: '1284652674',
     equipment: '2119399147',
+    sales: '1315372567',
+    procurement: '1281580539',
   },
   columns: {
     auth: {
@@ -140,6 +159,7 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
       calendarEventMirror: 'lookup_mm17kybq',
       reportSequenceNumber: 'numbers_mkmvq21y',
       executionStatusCheck: 'color_mm17daw5',
+      operationContent: 'long_text_mknz1213',
     },
     clients: {
       facilitiesRelation: 'board_relation_mm18w9fb',
@@ -164,6 +184,14 @@ export const DEFAULT_MONDAY_MAPPING_INVENTORY: MondayMappingInventory = {
       flowStatus: 'status_12',
       qaStatus: 'status6',
       executedAt: 'date4',
+    },
+    sales: {
+      shortOperationId: 'text_mkngcmtc',
+      salesStatus: 'status__1',
+    },
+    procurement: {
+      shortOperationId: 'text_mkng7hsw',
+      procurementStatus: 'status6',
     },
   },
   identityMirrors: {
@@ -329,6 +357,14 @@ export function buildMondayMappingInventory(overrides?: MondayMappingInventoryOv
       reports: {
         ...DEFAULT_MONDAY_MAPPING_INVENTORY.columns.reports,
         ...(overrides?.columns?.reports ?? {}),
+      },
+      sales: {
+        ...DEFAULT_MONDAY_MAPPING_INVENTORY.columns.sales,
+        ...(overrides?.columns?.sales ?? {}),
+      },
+      procurement: {
+        ...DEFAULT_MONDAY_MAPPING_INVENTORY.columns.procurement,
+        ...(overrides?.columns?.procurement ?? {}),
       },
     },
     identityMirrors: {

@@ -1,4 +1,4 @@
-﻿import type { MondayMappingInventory } from '../monday/mappingInventory'
+import type { MondayMappingInventory } from '../monday/mappingInventory'
 
 interface MondayColumnValue {
   id: string
@@ -61,6 +61,8 @@ export interface RuntimeOperationSnapshotRow {
   businessStatus: string | null
   operationStatus: string | null
   operationGroupStatus: string | null
+  salesStatus: string | null
+  procurementStatus: string | null
   isOpen: boolean
   clientItemId: string | null
   facilityItemId: string | null
@@ -76,6 +78,9 @@ export interface RuntimeOperationSnapshotRow {
     | 'unlinked'
   assignedTechnicianEmail: string | null
   executionStatus: string | null
+  operationContent: string | null
+  calendarEventId: string | null
+  calendarEventUrl: string | null
   metadata: Record<string, unknown>
 }
 
@@ -98,6 +103,7 @@ export interface RuntimeScheduleEntrySnapshotRow {
   plannedDateTime: string | null
   plannedDateTimeSource: 'calendar' | 'monday_date' | 'missing'
   calendarEventRef: string | null
+  calendarEventUrl: string | null
   scheduleStatus: string | null
   calendarSyncStatus: string | null
   controlStatus: string | null
@@ -228,6 +234,8 @@ interface ScheduleEntryContext {
   technicianCanonicalEmail: string
   technicianLegacyLabel: string
   groupId: string
+  calendarEventRef: string | null
+  calendarEventUrl: string | null
 }
 
 const RELEVANT_RUNTIME_ROLES = new Set(['admin', 'operations', 'technician', 'viewer'])
@@ -746,14 +754,26 @@ function normalizePlannedDate(raw: string): string | null {
   const value = normalizedText(raw)
   if (!value) return null
 
+  // ISO: 2024-03-12
   const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`
 
+  // Local: 12/03/2024 or 12.03.2024 or 12-03-2024
   const localMatch = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(value)
   if (localMatch) {
     const day = localMatch[1].padStart(2, '0')
     const month = localMatch[2].padStart(2, '0')
     const year = localMatch[3]
+    return `${year}-${month}-${day}`
+  }
+
+  // Monday Display: "Mar 11" or "11 Mar" or "Mar 11, 2026"
+  // This is a bit more complex, using native Date as a helper but being careful
+  const asDate = new Date(value)
+  if (!Number.isNaN(asDate.getTime())) {
+    const year = asDate.getFullYear()
+    const month = String(asDate.getMonth() + 1).padStart(2, '0')
+    const day = String(asDate.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
   }
 
@@ -763,8 +783,16 @@ function normalizePlannedDate(raw: string): string | null {
 function normalizeIsoDateTime(raw: string): string | null {
   const value = normalizedText(raw)
   if (!value) return null
+  
+  // Try native Date parsing for common formats
   const asDate = new Date(value)
-  if (!Number.isNaN(asDate.getTime())) return asDate.toISOString()
+  if (!Number.isNaN(asDate.getTime())) {
+    return asDate.toISOString()
+  }
+
+  // Special handling for Monday's "Mar 11, 09:00 AM" if native fails
+  // (though native usually handles this if it can understand the month name)
+  
   return null
 }
 
@@ -795,11 +823,22 @@ function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory
   plannedDate: string | null
   plannedDateTime: string | null
   calendarEventRef: string | null
+  calendarEventUrl: string | null
   source: 'calendar' | 'monday_date' | 'missing'
 } {
   const calendarText = getColumnText(item, mapping.columns.schedule.calendarEventRef)
   const calendarRaw = getColumnRawValue(item, mapping.columns.schedule.calendarEventRef)
   const calendarEventRef = extractCalendarEventRef(calendarRaw) ?? extractCalendarEventRef(calendarText)
+
+  let calendarEventUrl: string | null = null
+  if (calendarText?.includes('http')) {
+    const m = /(https?:\/\/[^\s]+)/.exec(calendarText)
+    if (m) calendarEventUrl = m[1]
+  } else if (calendarRaw && typeof calendarRaw === 'string' && calendarRaw.includes('http')) {
+    const m = /(https?:\/\/[^\s"]+)/.exec(calendarRaw)
+    if (m) calendarEventUrl = m[1]
+  }
+
 
   let plannedDateTime = extractDateTimeCandidate(calendarText)
   if (!plannedDateTime) {
@@ -813,12 +852,12 @@ function derivePlannedDateTime(item: MondayItem, mapping: MondayMappingInventory
     }
   }
 
-  if (plannedDateTime) return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, calendarEventRef, source: 'calendar' }
+  if (plannedDateTime) return { plannedDate: plannedDateTime.slice(0, 10), plannedDateTime, calendarEventRef, calendarEventUrl, source: 'calendar' }
 
   const mondayDate = normalizePlannedDate(getColumnText(item, mapping.columns.schedule.plannedDate))
-  if (mondayDate) return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, calendarEventRef, source: 'monday_date' }
+  if (mondayDate) return { plannedDate: mondayDate, plannedDateTime: `${mondayDate}T00:00:00.000Z`, calendarEventRef, calendarEventUrl, source: 'monday_date' }
 
-  return { plannedDate: null, plannedDateTime: null, calendarEventRef, source: 'missing' }
+  return { plannedDate: null, plannedDateTime: null, calendarEventRef, calendarEventUrl, source: 'missing' }
 }
 
 function normalizeExecutedAt(raw: string): string | null {
@@ -888,12 +927,16 @@ function buildScheduleContextIndexes(
     const scheduleItemId = normalizedText(item.id)
     if (!scheduleItemId) continue
 
+    const { calendarEventRef, calendarEventUrl } = derivePlannedDateTime(item, mapping)
+
     const context: ScheduleEntryContext = {
       scheduleItemId,
       operationIdRef,
       technicianCanonicalEmail: normalizedEmail(getColumnText(item, mapping.columns.schedule.technicianEmailMirror)),
       technicianLegacyLabel: normalizedText(getColumnText(item, mapping.columns.schedule.technicianLegacyDropdown)),
       groupId: normalizedText(item.group?.id),
+      calendarEventRef,
+      calendarEventUrl,
     }
 
     byScheduleItemId.set(scheduleItemId, context)
@@ -1044,6 +1087,8 @@ export function normalizeOperationsFromBoard(input: {
   operationsBoard: MondayBoard
   clientsBoard: MondayBoard
   scheduleBoard: MondayBoard
+  salesBoard?: MondayBoard | null
+  procurementBoard?: MondayBoard | null
   technicianFallbackBoard?: MondayBoard | null
   mapping: MondayMappingInventory
   runtimeUsers: RuntimeUserSnapshotRow[]
@@ -1052,7 +1097,7 @@ export function normalizeOperationsFromBoard(input: {
   assignments: RuntimeOperationAssignmentSnapshotRow[]
   diagnostics: OperationsNormalizationDiagnostics
 } {
-  const { operationsBoard, clientsBoard, scheduleBoard, technicianFallbackBoard, mapping, runtimeUsers } = input
+  const { operationsBoard, clientsBoard, scheduleBoard, salesBoard, procurementBoard, technicianFallbackBoard, mapping, runtimeUsers } = input
 
   assertBoardHasColumns(operationsBoard, 'operations board', [
     mapping.columns.operations.shortOperationId,
@@ -1098,6 +1143,25 @@ export function normalizeOperationsFromBoard(input: {
     }
   }
 
+  const salesStatusByOpId = new Map<string, string>()
+  const procurementStatusByOpId = new Map<string, string>()
+
+  if (salesBoard?.items_page?.items) {
+    for (const item of salesBoard.items_page.items) {
+      const opId = normalizedText(getColumnText(item, mapping.columns.sales.shortOperationId))
+      const status = normalizedText(getColumnText(item, mapping.columns.sales.salesStatus))
+      if (opId && status) salesStatusByOpId.set(opId, status)
+    }
+  }
+
+  if (procurementBoard?.items_page?.items) {
+    for (const item of procurementBoard.items_page.items) {
+      const opId = normalizedText(getColumnText(item, mapping.columns.procurement.shortOperationId))
+      const status = normalizedText(getColumnText(item, mapping.columns.procurement.procurementStatus))
+      if (opId && status) procurementStatusByOpId.set(opId, status)
+    }
+  }
+
   let missingOperationId = 0
   let assignmentMissingEmail = 0
   let assignmentUserNotIncluded = 0
@@ -1131,6 +1195,10 @@ export function normalizeOperationsFromBoard(input: {
     const reportSequenceNumber = normalizedText(getColumnText(item, mapping.columns.operations.reportSequenceNumber)) || null
     const legacyShortOperationId = normalizedText(getColumnText(item, mapping.columns.operations.shortOperationId)) || null
     const shortOperationId = reportSequenceNumber || legacyShortOperationId || null
+
+    const salesStatus = salesStatusByOpId.get(operationId) ?? (shortOperationId ? salesStatusByOpId.get(shortOperationId) : null) ?? null
+    const procurementStatus = procurementStatusByOpId.get(operationId) ?? (shortOperationId ? procurementStatusByOpId.get(shortOperationId) : null) ?? null
+
     const scheduleContextMapByRef = new Map<string, ScheduleEntryContext>()
     for (const refCandidate of [...buildOperationRefCandidates(operationId), ...buildOperationRefCandidates(shortOperationId)]) {
       for (const entry of scheduleIndexes.byOperationId.get(refCandidate) ?? []) {
@@ -1240,6 +1308,21 @@ export function normalizeOperationsFromBoard(input: {
       }
     }
 
+    let operationCalendarEventId: string | null = null
+    let operationCalendarEventUrl: string | null = null
+
+    for (const ctx of linkedScheduleContexts) {
+      if (ctx.calendarEventRef) {
+        operationCalendarEventId = ctx.calendarEventRef
+        const itemInSchedule = scheduleBoard.items_page?.items?.find((i) => i.id === ctx.scheduleItemId)
+        if (itemInSchedule) {
+          const dt = derivePlannedDateTime(itemInSchedule, mapping)
+          if (dt.calendarEventUrl) operationCalendarEventUrl = dt.calendarEventUrl
+        }
+        break
+      }
+    }
+
     operations.push({
       id: operationId,
       name: normalizedText(item.name) || null,
@@ -1249,6 +1332,8 @@ export function normalizeOperationsFromBoard(input: {
       businessStatus,
       operationStatus,
       operationGroupStatus,
+      salesStatus,
+      procurementStatus,
       isOpen,
       clientItemId,
       facilityItemId,
@@ -1256,6 +1341,9 @@ export function normalizeOperationsFromBoard(input: {
       technicianLinkageState,
       assignedTechnicianEmail: assignedEmail,
       executionStatus,
+      operationContent: normalizedText(getColumnText(item, mapping.columns.operations.operationContent)) || null,
+      calendarEventId: operationCalendarEventId,
+      calendarEventUrl: operationCalendarEventUrl,
       metadata: {
         mondayBoardId: operationsBoard.id,
         mondayItemId: operationId,
@@ -1511,6 +1599,7 @@ export function normalizeScheduleEntriesFromBoard(input: {
     const plannedDateTime = plannedDateDerived.plannedDateTime
     const plannedDateTimeSource = plannedDateDerived.source
     const calendarEventRef = plannedDateDerived.calendarEventRef
+    const calendarEventUrl = plannedDateDerived.calendarEventUrl
     const scheduleStatus = resolveStatusText(item, mapping.columns.schedule.scheduleStatus, statusLabelsByColumn) || null
     const rawCalendarSyncStatus = resolveStatusText(item, mapping.columns.schedule.calendarSyncStatus, statusLabelsByColumn) || null
     const rawControlStatus = resolveStatusText(item, mapping.columns.schedule.scheduleControlStatus, statusLabelsByColumn) || null
@@ -1575,6 +1664,7 @@ export function normalizeScheduleEntriesFromBoard(input: {
       plannedDateTime,
       plannedDateTimeSource,
       calendarEventRef,
+      calendarEventUrl,
       scheduleStatus,
       calendarSyncStatus,
       controlStatus,

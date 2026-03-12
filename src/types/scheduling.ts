@@ -1,4 +1,4 @@
-﻿export type Priority = 'P1' | 'P2' | 'P3'
+export type Priority = 'P1' | 'P2' | 'P3'
 
 export interface Technician {
   id: string
@@ -42,9 +42,13 @@ export interface FacilityRecord extends Client {
 export interface RuntimeOperationSnapshot {
   id: string
   shortOperationId: string | null
+  title: string | null
+  operationContent: string | null
   requestPurposeRaw: string | null
   operationCategory: string | null
   businessStatus: string | null
+  salesStatus: string | null
+  procurementStatus: string | null
   operationStatus: string | null
   operationGroupStatus: string | null
   technicianNameHint: string | null
@@ -68,6 +72,7 @@ export interface RuntimeOperationSnapshot {
 export interface RuntimeAssignmentSnapshot {
   operationId: string
   userEmail: string | null
+  technicianName: string | null
   role: string | null
 }
 
