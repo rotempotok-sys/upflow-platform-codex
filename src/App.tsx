@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useGoogleCalendarAuth } from './features/calendar/GoogleCalendarContext'
 import { BlockedScreen } from './features/auth/BlockedScreen'
 import { LoginScreen, type LoginOutcome } from './features/auth/LoginScreen'
 import { NotAuthorizedScreen } from './features/auth/NotAuthorizedScreen'
@@ -93,6 +94,45 @@ function formatSyncTime(value: string | null) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'טרם סונכרן'
   return date.toLocaleString('he-IL')
+}
+
+function CalendarConnectBanner() {
+  const { needsInteractiveAuth, isReady, accessToken, requestToken } = useGoogleCalendarAuth()
+
+  if (!needsInteractiveAuth || !isReady || accessToken) return null
+
+  return (
+    <div
+      style={{
+        background: '#1a73e8',
+        color: '#fff',
+        padding: '10px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '12px',
+        fontSize: '0.9rem',
+      }}
+    >
+      <span>נדרש חיבור ל-Google Calendar לתפקוד מלא</span>
+      <button
+        type="button"
+        onClick={() => requestToken('')}
+        style={{
+          background: '#fff',
+          color: '#1a73e8',
+          border: 'none',
+          borderRadius: '4px',
+          padding: '6px 16px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontSize: '0.85rem',
+        }}
+      >
+        התחבר עכשיו
+      </button>
+    </div>
+  )
 }
 
 function AuthShellMarker() {
@@ -486,6 +526,7 @@ function App() {
 
   return (
     <GoogleCalendarProvider>
+    <CalendarConnectBanner />
     <main className="app-shell app-layout" dir="rtl">
       <AuthShellMarker />
       <aside className="panel side-nav" aria-label="ניווט ראשי">

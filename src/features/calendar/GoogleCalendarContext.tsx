@@ -33,6 +33,8 @@ interface GoogleCalendarContextValue {
   accessToken: string | null
   isReady: boolean
   error: string
+  /** True when silent auth failed and user interaction is needed */
+  needsInteractiveAuth: boolean
   /** Request a new token (with user interaction if needed) */
   requestToken: (prompt?: '' | 'none' | 'consent' | 'select_account') => void
 }
@@ -41,6 +43,7 @@ const GoogleCalendarContext = createContext<GoogleCalendarContextValue>({
   accessToken: null,
   isReady: false,
   error: '',
+  needsInteractiveAuth: false,
   requestToken: () => {},
 })
 
@@ -52,6 +55,7 @@ export function GoogleCalendarProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState('')
+  const [needsInteractiveAuth, setNeedsInteractiveAuth] = useState(false)
   const tokenClientRef = useRef<any>(null)
   const refreshTimerRef = useRef<number | null>(null)
 
@@ -61,6 +65,7 @@ export function GoogleCalendarProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY, String(expiresAtMs))
     setAccessToken(token)
     setError('')
+    setNeedsInteractiveAuth(false)
 
     // Schedule silent refresh before expiry
     if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
@@ -95,7 +100,11 @@ export function GoogleCalendarProvider({ children }: { children: ReactNode }) {
           callback: (response: any) => {
             if (response.error || !response.access_token) {
               const isSilent = response.error === 'interaction_required' || response.error === 'login_required'
-              if (!isSilent) setError('נכשל אימות מול Google Calendar')
+              if (isSilent) {
+                setNeedsInteractiveAuth(true)
+              } else {
+                setError('נכשל אימות מול Google Calendar')
+              }
               return
             }
             storeToken(response.access_token, Number(response.expires_in ?? 0))
@@ -134,7 +143,7 @@ export function GoogleCalendarProvider({ children }: { children: ReactNode }) {
   }, [storeToken])
 
   return (
-    <GoogleCalendarContext.Provider value={{ accessToken, isReady, error, requestToken }}>
+    <GoogleCalendarContext.Provider value={{ accessToken, isReady, error, needsInteractiveAuth, requestToken }}>
       {children}
     </GoogleCalendarContext.Provider>
   )
