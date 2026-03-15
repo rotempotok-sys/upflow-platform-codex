@@ -5,6 +5,7 @@ import { NotAuthorizedScreen } from './features/auth/NotAuthorizedScreen'
 import { PendingScreen } from './features/auth/PendingScreen'
 import { OperationsAIAgentPage } from './features/assistant/OperationsAIAgentPage'
 import { CalendarLinkPage } from './features/calendar/CalendarLinkPage'
+import { GoogleCalendarProvider } from './features/calendar/GoogleCalendarContext'
 import { ClientsOverview } from './features/clients/ClientsOverview'
 import { EquipmentBoardPage } from './features/equipment/EquipmentBoardPage'
 import { TeamOverview } from './features/team/TeamOverview'
@@ -484,6 +485,7 @@ function App() {
   }
 
   return (
+    <GoogleCalendarProvider>
     <main className="app-shell app-layout" dir="rtl">
       <AuthShellMarker />
       <aside className="panel side-nav" aria-label="ניווט ראשי">
@@ -576,6 +578,7 @@ function App() {
         </section>
       </section>
     </main>
+    </GoogleCalendarProvider>
   )
 }
 

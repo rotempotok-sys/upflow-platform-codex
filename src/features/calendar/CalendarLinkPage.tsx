@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from 'react'
+import { useGoogleCalendarAuth } from './GoogleCalendarContext'
 
 type CalendarItem = {
   id: string
@@ -39,32 +40,8 @@ const TECHNICIANS: Technician[] = [
 
 const WEEKDAY_LABELS = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש']
 
-const GOOGLE_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || '586770624218-11h357fh8gj64plgglbdnk7bi14cqr9r.apps.googleusercontent.com'
 const TARGET_CALENDAR_NAME = import.meta.env.VITE_GOOGLE_TARGET_CALENDAR_NAME?.trim() || 'לוז טכנאים'
 const TARGET_CALENDAR_ID = import.meta.env.VITE_GOOGLE_TARGET_CALENDAR_ID?.trim() || 'upflow.operations@gmail.com'
-const CALENDAR_TOKEN_STORAGE_KEY = 'upflow_calendar_token'
-const CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY = 'upflow_calendar_token_expires_at'
-
-function loadGoogleIdentityScript() {
-  return new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-google-gsi="1"]')
-    if (existing) {
-      if (window.google?.accounts?.oauth2) resolve()
-      else existing.addEventListener('load', () => resolve(), { once: true })
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.dataset.googleGsi = '1'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Google Identity script'))
-    document.head.appendChild(script)
-  })
-}
 
 function startOfWeekSunday(baseDate: Date) {
   const date = new Date(baseDate)
@@ -142,11 +119,7 @@ function weekTitle(days: DayMeta[]) {
 }
 
 export function CalendarLinkPage() {
-  const [isGoogleReady, setIsGoogleReady] = useState(false)
-  const [tokenClient, setTokenClient] = useState<{
-    requestAccessToken: (overrideConfig?: { prompt?: '' | 'none' | 'consent' | 'select_account' }) => void
-  } | null>(null)
-  const [accessToken, setAccessToken] = useState<string | null>(null)
+  const { accessToken, isReady: isGoogleReady, error: authError, requestToken } = useGoogleCalendarAuth()
   const [selectedCalendarId, setSelectedCalendarId] = useState('')
   const [selectedCalendarName, setSelectedCalendarName] = useState(TARGET_CALENDAR_NAME)
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -157,65 +130,25 @@ export function CalendarLinkPage() {
 
   const weekDays = useMemo(() => getWeekDays(weekOffset), [weekOffset])
 
+  // Initialize calendar when token becomes available
   useEffect(() => {
+    if (!accessToken) return
     let canceled = false
 
-    async function setupGoogle() {
+    async function init() {
+      setIsLoading(true)
       try {
-        await loadGoogleIdentityScript()
-        if (canceled) return
-
-        if (!window.google?.accounts?.oauth2) {
-          throw new Error('Google Identity API not available')
-        }
-
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: 'https://www.googleapis.com/auth/calendar.readonly',
-          callback: async (response) => {
-            if (response.error || !response.access_token) {
-              const isSilentFailure = response.error === 'interaction_required' || response.error === 'login_required'
-              setError(isSilentFailure ? '' : 'נכשל אימות מול Google Calendar')
-              return
-            }
-
-            const expiresInSeconds = Number(response.expires_in ?? 0)
-            const expiresAtMs = Date.now() + Math.max(expiresInSeconds - 60, 30) * 1000
-            localStorage.setItem(CALENDAR_TOKEN_STORAGE_KEY, response.access_token)
-            localStorage.setItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY, String(expiresAtMs))
-
-            setError('')
-            setAccessToken(response.access_token)
-            await initializeCalendar(response.access_token)
-          },
-        })
-
-        setTokenClient(client)
-        setIsGoogleReady(true)
-
-        const storedToken = localStorage.getItem(CALENDAR_TOKEN_STORAGE_KEY)
-        const storedExpiryRaw = localStorage.getItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY)
-        const storedExpiry = Number(storedExpiryRaw ?? '0')
-        const hasValidStoredToken = Boolean(storedToken && Number.isFinite(storedExpiry) && storedExpiry > Date.now())
-
-        if (hasValidStoredToken && storedToken) {
-          setAccessToken(storedToken)
-          await initializeCalendar(storedToken)
-          return
-        }
-
-        // Silent auth attempt: avoid manual calendar connect when app user is already signed in.
-        client.requestAccessToken({ prompt: 'none' })
+        await initializeCalendar(accessToken!)
       } catch {
-        setError('לא ניתן לטעון את Google Identity. בדוק חיבור רשת והרשאות OAuth.')
+        if (!canceled) setError('נכשלה משיכת יומנים/אירועים מ-Google Calendar.')
+      } finally {
+        if (!canceled) setIsLoading(false)
       }
     }
 
-    setupGoogle()
-    return () => {
-      canceled = true
-    }
-  }, [])
+    init()
+    return () => { canceled = true }
+  }, [accessToken])
 
   useEffect(() => {
     if (!accessToken || !selectedCalendarId) return
@@ -335,7 +268,7 @@ export function CalendarLinkPage() {
             <button
               type="button"
               className="tab"
-              onClick={() => tokenClient?.requestAccessToken({ prompt: accessToken ? '' : 'consent' })}
+              onClick={() => requestToken(accessToken ? '' : 'consent')}
               disabled={!isGoogleReady || isLoading}
             >
               {accessToken ? 'רענון מגוגל' : 'חיבור ל-Google Calendar'}
@@ -366,7 +299,7 @@ export function CalendarLinkPage() {
           </button>
         </div>
 
-        {error ? <p className="calendar-error">{error}</p> : null}
+        {(error || authError) ? <p className="calendar-error">{error || authError}</p> : null}
       </article>
 
       <article className="panel schedule-board-wrap">
