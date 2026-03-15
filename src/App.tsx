@@ -594,6 +594,7 @@ function App() {
               scheduleEntriesData={scheduleEntries}
               reportsData={reports}
               usersData={users}
+              assignmentsData={assignments}
               projectionsData={projections}
               isLoading={syncState === 'syncing' && operations.length === 0}
             />
@@ -614,7 +615,7 @@ function App() {
             />
           ) : null}
           {activeView === 'clients' ? <ClientsOverview clientsData={clients} /> : null}
-          {activeView === 'calendar' ? <CalendarLinkPage /> : null}
+          {activeView === 'calendar' ? <CalendarLinkPage usersData={users} assignmentsData={assignments} scheduleEntriesData={scheduleEntries} /> : null}
           {activeView === 'equipment' ? <EquipmentBoardPage facilitiesData={facilities} /> : null}
         </section>
       </section>

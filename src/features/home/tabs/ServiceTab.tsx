@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type {
+  RuntimeAssignmentSnapshot,
   RuntimeOperationSnapshot,
   RuntimeExceptionSnapshot,
   RuntimeReportSnapshot,
@@ -160,6 +161,7 @@ export function ServiceTab({
   scheduleEntriesData,
   reportsData,
   usersData,
+  assignmentsData = [],
   projectionsData,
 }: {
   operationsData: RuntimeOperationSnapshot[]
@@ -167,6 +169,7 @@ export function ServiceTab({
   scheduleEntriesData: RuntimeScheduleEntrySnapshot[]
   reportsData: RuntimeReportSnapshot[]
   usersData: RuntimeUserSnapshot[]
+  assignmentsData?: RuntimeAssignmentSnapshot[]
   projectionsData: RuntimeOperationalProjections | null
 }) {
   const todayStr = today()
@@ -193,6 +196,15 @@ export function ServiceTab({
     for (const u of usersData) if (u.email) m.set(u.email, u.displayName)
     return m
   }, [usersData])
+
+  // operationId → first assigned technician name
+  const techByOpId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const a of assignmentsData) {
+      if (a.technicianName && !m.has(a.operationId)) m.set(a.operationId, a.technicianName)
+    }
+    return m
+  }, [assignmentsData])
 
   const eventByOpId = useMemo(() => {
     const m = new Map<string, { raw: string, display: string }>()
@@ -378,7 +390,7 @@ export function ServiceTab({
       const event = eventByOpId.map.get(op.id)
       return {
         op,
-        techName: techByEmail.get(op.assignedTechnicianEmail ?? '') ?? op.technicianNameHint ?? '',
+        techName: techByEmail.get(op.assignedTechnicianEmail ?? '') ?? techByOpId.get(op.id) ?? op.technicianNameHint ?? '',
         eventDateRaw: event?.raw ?? '',
         eventDateDisplay: event?.display ?? '',
         facilityName: facilityByOpId.get(op.id) ?? '',
@@ -386,7 +398,7 @@ export function ServiceTab({
       }
     })
     return [...mondayRows, ...syntheticOps]
-  }, [serviceOps, techByEmail, eventByOpId, facilityByOpId, reportStatusByOpId, syntheticOps])
+  }, [serviceOps, techByEmail, techByOpId, eventByOpId, facilityByOpId, reportStatusByOpId, syntheticOps])
 
   // ─── Filter options ────────────────────────────────────────────
   const purposeOptions = useMemo(() => uniq(rows.map(r => r.op.requestPurposeRaw ?? '')), [rows])

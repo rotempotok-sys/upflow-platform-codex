@@ -1386,6 +1386,111 @@ function attachApiMiddleware(
       return
     }
 
+    if (requestPath === '/api/monday/operations/assign' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req) as { operationId?: string; technicianName?: string; technicianEmail?: string }
+        const { operationId, technicianName, technicianEmail } = body || {}
+
+        if (!operationId || !technicianName) {
+          jsonError(res, 400, 'MISSING_PARAMS', 'operationId and technicianName are required')
+          return
+        }
+
+        const mondayToken = env.mondayApiToken
+        if (!mondayToken) {
+          jsonError(res, 500, 'CONFIG_ERROR', 'Monday API token not configured')
+          return
+        }
+
+        const opsBoardId = (env as any).runtimeSecrets?.boards?.operations || '1798247340'
+        const performerCol = (env as any).runtimeSecrets?.columns?.operations?.performerRelation || 'board_relation_mm17kvck'
+
+        // Find the technician item ID on the connected board by searching all boards for the email
+        // First, search the auth board for the person item by name
+        const searchQuery = `query ($name: String!) { items_page_by_column_values (board_id: ${env.mondayAuthBoardId}, limit: 5, columns: [{column_id: "name", column_values: [$name]}]) { items { id name } } }`
+        const searchResult = await mondayRequest(searchQuery, { name: technicianName }, mondayToken)
+        const matchedItems = searchResult?.items_page_by_column_values?.items || []
+        const techItem = matchedItems.find((item: any) => item.name === technicianName) || matchedItems[0]
+
+        if (techItem) {
+          // Update the performer relation column on the operation
+          const updateQuery = `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) { change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id } }`
+          const columnValues = JSON.stringify({ [performerCol]: { item_ids: [Number(techItem.id)] } })
+          await mondayRequest(updateQuery, { boardId: opsBoardId, itemId: operationId, columnValues }, mondayToken)
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, matched: !!techItem, techItemId: techItem?.id ?? null }))
+      } catch (err: any) {
+        console.error('[monday/operations/assign]', err)
+        jsonError(res, 500, 'MONDAY_UPDATE_FAILED', err?.message || 'Unknown error')
+      }
+      return
+    }
+
+    // --- Update planned date on the schedule board linked to an operation ---
+    if (requestPath === '/api/monday/operations/update-date' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req) as { operationId?: string; scheduleItemId?: string; date?: string; startTime?: string; endTime?: string }
+        const { operationId, scheduleItemId, date, startTime } = body || {}
+
+        if (!date) {
+          jsonError(res, 400, 'MISSING_PARAMS', 'date is required')
+          return
+        }
+        if (!scheduleItemId && !operationId) {
+          jsonError(res, 400, 'MISSING_PARAMS', 'scheduleItemId or operationId is required')
+          return
+        }
+
+        const mondayToken = env.mondayApiToken
+        if (!mondayToken) {
+          jsonError(res, 500, 'CONFIG_ERROR', 'Monday API token not configured')
+          return
+        }
+
+        const scheduleBoardId = (env as any).runtimeSecrets?.boards?.schedule || '1783389345'
+        const plannedDateCol = (env as any).runtimeSecrets?.columns?.schedule?.plannedDate || 'date4'
+
+        let targetItemId = scheduleItemId || null
+
+        // If no direct schedule item ID, search by operation ID
+        if (!targetItemId && operationId) {
+          const opIdRefCol = (env as any).runtimeSecrets?.columns?.schedule?.operationIdRef || 'text_mknfnj59'
+          const searchQuery = `query ($boardId: [ID!]!) { boards(ids: $boardId) { items_page(limit: 500) { items { id column_values { id text } } } } }`
+          const searchResult = await mondayRequest(searchQuery, { boardId: scheduleBoardId }, mondayToken)
+          const allItems = searchResult?.boards?.[0]?.items_page?.items || []
+          const scheduleItem = allItems.find((item: any) =>
+            item.column_values?.some((cv: any) => cv.id === opIdRefCol && cv.text === operationId)
+          )
+          targetItemId = scheduleItem?.id || null
+        }
+
+        if (!targetItemId) {
+          console.warn('[monday/operations/update-date] No schedule item found', { operationId, scheduleItemId })
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, matched: false, note: 'No schedule item found' }))
+          return
+        }
+
+        // Build the date column value — Monday date format: { date: "YYYY-MM-DD", time: "HH:MM:SS" }
+        const dateValue: any = { date }
+        if (startTime) dateValue.time = `${startTime}:00`
+
+        console.log('[monday/operations/update-date] Updating item', targetItemId, 'with', JSON.stringify(dateValue))
+        const updateQuery = `mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) { change_multiple_column_values(board_id: $boardId, item_id: $itemId, column_values: $columnValues) { id } }`
+        const columnValues = JSON.stringify({ [plannedDateCol]: dateValue })
+        await mondayRequest(updateQuery, { boardId: scheduleBoardId, itemId: String(targetItemId), columnValues }, mondayToken)
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: true, matched: true, scheduleItemId: targetItemId }))
+      } catch (err: any) {
+        console.error('[monday/operations/update-date]', err)
+        jsonError(res, 500, 'MONDAY_UPDATE_FAILED', err?.message || 'Unknown error')
+      }
+      return
+    }
+
     if (requestPath === '/api/monday/snapshot' && req.method === 'GET') {
       jsonError(res, 410, 'API_DEPRECATED', 'Use /api/runtime-db/snapshot')
       return

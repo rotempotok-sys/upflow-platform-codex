@@ -5,6 +5,7 @@ import { ProcurementTab } from './tabs/ProcurementTab'
 import { SalesTab } from './tabs/SalesTab'
 import { LogisticsTab } from './tabs/LogisticsTab'
 import type {
+  RuntimeAssignmentSnapshot,
   RuntimeExceptionSnapshot,
   RuntimeOperationSnapshot,
   RuntimeReportSnapshot,
@@ -21,6 +22,7 @@ interface HomeDashboardProps {
   scheduleEntriesData: RuntimeScheduleEntrySnapshot[]
   reportsData: RuntimeReportSnapshot[]
   usersData: RuntimeUserSnapshot[]
+  assignmentsData?: RuntimeAssignmentSnapshot[]
   projectionsData: RuntimeOperationalProjections | null
   isLoading?: boolean
 }
@@ -200,6 +202,7 @@ function ManagerDashboard({
   scheduleEntriesData,
   reportsData,
   usersData,
+  assignmentsData = [],
   projectionsData,
 }: Omit<HomeDashboardProps, 'currentUserEmail' | 'currentUserRole' | 'isLoading' | 'facilitiesData'>) {
   const [activeTab, setActiveTab] = React.useState<TabKey>('service')
@@ -215,6 +218,7 @@ function ManagerDashboard({
           scheduleEntriesData={scheduleEntriesData}
           reportsData={reportsData}
           usersData={usersData}
+          assignmentsData={assignmentsData}
           projectionsData={projectionsData}
         />
       )}
@@ -455,6 +459,7 @@ export function HomeDashboard({
   scheduleEntriesData,
   reportsData,
   usersData,
+  assignmentsData = [],
   projectionsData,
   isLoading,
 }: HomeDashboardProps) {
@@ -478,6 +483,7 @@ export function HomeDashboard({
       scheduleEntriesData={scheduleEntriesData}
       reportsData={reportsData}
       usersData={usersData}
+      assignmentsData={assignmentsData}
       projectionsData={projectionsData}
     />
   )
