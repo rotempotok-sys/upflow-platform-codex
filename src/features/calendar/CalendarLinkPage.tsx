@@ -259,7 +259,7 @@ async function patchGoogleEvent(calendarId: string, eventId: string, token: stri
 }
 
 export function CalendarLinkPage({ usersData = [], assignmentsData = [], scheduleEntriesData = [] }: { usersData?: RuntimeUserSnapshot[]; assignmentsData?: RuntimeAssignmentSnapshot[]; scheduleEntriesData?: RuntimeScheduleEntrySnapshot[] }) {
-  const { accessToken, isReady: isGoogleReady, error: authError, requestToken } = useGoogleCalendarAuth()
+  const { accessToken, isReady: isGoogleReady, error: authError, needsReauth, fetchToken } = useGoogleCalendarAuth()
   const technicians = useMemo(() => buildTechnicians(usersData), [usersData])
 
   // Build lookup: Google Calendar event ID → schedule entry (for Monday sync)
@@ -441,17 +441,22 @@ export function CalendarLinkPage({ usersData = [], assignmentsData = [], schedul
     }
   }
 
-  // Initialize calendar when token becomes available
+  // Initialize calendar when token becomes available, or fallback to backend
   useEffect(() => {
-    if (!accessToken) return
     let canceled = false
 
     async function init() {
       setIsLoading(true)
       try {
-        await initializeCalendar(accessToken!)
+        if (accessToken) {
+          // Direct Google Calendar API access (admin/operations users)
+          await initializeCalendar(accessToken)
+        } else if (isGoogleReady) {
+          // No direct access — use backend Service Account endpoint
+          await pullEventsFromBackend()
+        }
       } catch {
-        if (!canceled) setError('נכשלה משיכת יומנים/אירועים מ-Google Calendar.')
+        if (!canceled) setError('נכשלה משיכת יומנים/אירועים.')
       } finally {
         if (!canceled) setIsLoading(false)
       }
@@ -459,14 +464,20 @@ export function CalendarLinkPage({ usersData = [], assignmentsData = [], schedul
 
     init()
     return () => { canceled = true }
-  }, [accessToken])
+  }, [accessToken, isGoogleReady])
 
   useEffect(() => {
-    if (!accessToken || !selectedCalendarId) return
+    if (!selectedCalendarId) return
 
-    pullWeekEvents(selectedCalendarId, accessToken).catch(() => {
-      setError('נכשלה משיכת אירועי שבוע.')
-    })
+    if (accessToken) {
+      pullWeekEvents(selectedCalendarId, accessToken).catch(() => {
+        setError('נכשלה משיכת אירועי שבוע.')
+      })
+    } else if (isGoogleReady) {
+      pullEventsFromBackend().catch(() => {
+        setError('נכשלה משיכת אירועי שבוע.')
+      })
+    }
   }, [weekOffset])
 
   async function googleGet<T>(path: string, token: string): Promise<T> {
@@ -538,6 +549,25 @@ export function CalendarLinkPage({ usersData = [], assignmentsData = [], schedul
 
     const payload = await googleGet<EventsResponse>(`/calendars/${encodeURIComponent(calendarId)}/events?${params}`, token)
     setEvents(payload.items || [])
+  }
+
+  /** Fetch events from backend Service Account (for technicians without direct calendar access) */
+  async function pullEventsFromBackend() {
+    const response = await fetch('/api/calendar/my-events', {
+      method: 'GET',
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Backend calendar API ${response.status}`)
+    }
+
+    const data = await response.json() as { events?: CalendarEvent[]; calendarId?: string }
+    setEvents(data.events || [])
+    if (data.calendarId) {
+      setSelectedCalendarId(data.calendarId)
+    }
+    setSelectedCalendarName(TARGET_CALENDAR_NAME)
   }
 
   // Build operationId → technician name(s) lookup from assignments
@@ -622,7 +652,13 @@ export function CalendarLinkPage({ usersData = [], assignmentsData = [], schedul
             <button
               type="button"
               className="tab"
-              onClick={() => requestToken(accessToken ? '' : 'consent')}
+              onClick={() => {
+                if (needsReauth || !accessToken) {
+                  window.location.href = '/api/auth/google/start?prompt=consent'
+                } else {
+                  fetchToken()
+                }
+              }}
               disabled={!isGoogleReady || isLoading}
             >
               {accessToken ? 'רענון מגוגל' : 'חיבור ל-Google Calendar'}

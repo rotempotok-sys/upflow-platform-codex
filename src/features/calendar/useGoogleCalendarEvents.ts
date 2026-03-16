@@ -15,8 +15,7 @@ export type CalendarEvent = {
 
 const TARGET_CALENDAR_ID = import.meta.env.VITE_GOOGLE_TARGET_CALENDAR_ID?.trim() || 'upflow.operations@gmail.com'
 
-// Re-export for backwards compat
-export { CALENDAR_TOKEN_STORAGE_KEY, CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY } from './GoogleCalendarContext'
+// Legacy re-exports removed — tokens are now managed server-side
 
 export function useGoogleCalendarEvents() {
   const { accessToken, error: authError } = useGoogleCalendarAuth()

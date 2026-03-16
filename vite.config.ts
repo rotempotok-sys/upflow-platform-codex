@@ -14,7 +14,7 @@ import { normalizeOperationsFromBoard, normalizeReportsFromBoard, normalizeSched
 import { buildRuntimeOperationalProjections, readLatestRuntimeSyncRun, readRuntimeClientsAndFacilities } from './server/runtime/read'
 import { sanitizeRuntimeErrorMessage } from './server/runtime/security'
 import { computeCanonicalRuntimeExceptions } from './server/runtime/exceptions'
-import { fetchGoogleCalendarEventsByRefs } from './server/calendar/googleBackend'
+import { fetchGoogleCalendarEventsByRefs, fetchCalendarEventsForRange } from './server/calendar/googleBackend'
 
 interface ChatRequestBody {
   userId?: string
@@ -49,6 +49,8 @@ interface ProxyEnv {
   mondayEquipmentBoardId: string
   mondayAuthBoardId: string
   googleClientId: string
+  googleClientSecret: string
+  googleRedirectUri: string
   roleStatusMap: Partial<Record<string, PlatformRole>>
   approvalStatusMap: Partial<Record<string, ApprovalStatus>>
   authRoleColumnId: string
@@ -937,6 +939,8 @@ function attachApiMiddleware(
     const runtimeSecrets = [env.supabaseAnonKey, env.supabaseServiceRoleKey, env.mondayApiToken, env.openRouterApiKey]
     const authHandled = await handleAuthRoutes(req, res, {
       googleClientId: env.googleClientId,
+      googleClientSecret: env.googleClientSecret,
+      googleRedirectUri: env.googleRedirectUri,
       isProduction: env.isProduction,
       mondayApiToken: env.mondayApiToken,
       mondayAuthBoardId: env.mondayAuthBoardId,
@@ -955,6 +959,10 @@ function attachApiMiddleware(
       toggleAiAskColumnId: env.authToggleAiAskColumnId,
       roleStatusMap: env.roleStatusMap,
       approvalStatusMap: env.approvalStatusMap,
+      supabaseUrl: env.supabaseUrl,
+      supabaseAnonKey: env.supabaseAnonKey,
+      supabaseServiceRoleKey: env.supabaseServiceRoleKey,
+      supabaseDbSchema: env.supabaseDbSchema,
     })
 
     if (authHandled || res.writableEnded) return
@@ -1786,6 +1794,91 @@ function attachApiMiddleware(
       return
     }
 
+    // =========================================================================
+    // GET /api/calendar/my-events — Fetch calendar events for the logged-in user
+    // Uses the Service Account to read the shared calendar, then filters to
+    // only events matching the user's schedule entries (by calendarEventRef).
+    // This allows technicians to see their events without direct calendar access.
+    // =========================================================================
+    if (requestPath === '/api/calendar/my-events' && req.method === 'GET') {
+      const guard = await requireApprovedPermissions({
+        req,
+        res,
+        env: toGuardEnv(env),
+        requiredPermissions: [],
+      })
+      if (!guard) return
+
+      const calendarPermissions: PermissionKey[] = ['screen.calendar']
+      if (!hasAnyPermission(guard.user.permissions.keys, calendarPermissions)) {
+        jsonError(res, 403, 'AUTH_PERMISSION_DENIED', 'Missing calendar access permissions', {
+          requiredAnyOf: calendarPermissions,
+        })
+        return
+      }
+
+      try {
+        const calendarId = (loaded.VITE_GOOGLE_TARGET_CALENDAR_ID || 'upflow.operations@gmail.com').trim()
+
+        // Get the user's schedule entries from Supabase to determine which events are relevant
+        const supabaseConfig = readSupabaseRuntimeConfig({
+          SUPABASE_URL: env.supabaseUrl,
+          SUPABASE_ANON_KEY: env.supabaseAnonKey,
+          SUPABASE_SERVICE_ROLE_KEY: env.supabaseServiceRoleKey,
+          SUPABASE_DB_SCHEMA: env.supabaseDbSchema,
+        })
+        const supabase = createSupabaseAdminClient(supabaseConfig)
+
+        const userEmail = guard.user.email.trim().toLowerCase()
+        const isScopedTechnician = guard.user.scope.scopedRole === true
+
+        // Fetch schedule entries
+        const { data: scheduleEntries } = await supabase
+          .from('schedule_entries')
+          .select('calendar_event_ref, technician_email, planned_date')
+
+        // Build set of calendar event refs for this user
+        let relevantCalRefs: Set<string> | undefined
+
+        if (isScopedTechnician && scheduleEntries) {
+          // Technician: filter to only their schedule entries
+          relevantCalRefs = new Set<string>()
+          for (const entry of scheduleEntries) {
+            const entryEmail = String(entry.technician_email ?? '').trim().toLowerCase()
+            const calRef = String(entry.calendar_event_ref ?? '').trim().toLowerCase()
+            if (entryEmail === userEmail && calRef) {
+              relevantCalRefs.add(calRef)
+            }
+          }
+        }
+        // Admin/Operations: no filter — see all events
+
+        const events = await fetchCalendarEventsForRange(calendarId, {
+          filterEventIds: relevantCalRefs,
+        })
+
+        res.statusCode = 200
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify({
+          events,
+          total: events.length,
+          filtered: isScopedTechnician,
+          calendarId,
+        }))
+      } catch (error) {
+        const safeMessage = sanitizeRuntimeErrorMessage(
+          error instanceof Error ? error.message : 'Calendar events fetch failed',
+          runtimeSecrets,
+        )
+        console.error('[calendar.my-events]', safeMessage)
+        res.statusCode = 500
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify({ error: safeMessage }))
+      }
+
+      return
+    }
+
     next()
   })
 }
@@ -1802,6 +1895,8 @@ export default defineConfig(({ mode }) => {
     mondayEquipmentBoardId: loaded.MONDAY_EQUIPMENT_BOARD_ID || '2119399147',
     mondayAuthBoardId: loaded.MONDAY_AUTH_BOARD_ID || '1729562303',
     googleClientId: (loaded.GOOGLE_CLIENT_ID || loaded.VITE_GOOGLE_CLIENT_ID || '').trim(),
+    googleClientSecret: (loaded.GOOGLE_CLIENT_SECRET || '').trim(),
+    googleRedirectUri: (loaded.GOOGLE_REDIRECT_URI || 'http://localhost:5173/api/auth/google/callback').trim(),
     roleStatusMap: parseStatusMap<PlatformRole>(loaded.AUTH_ROLE_STATUS_MAP_JSON || ''),
     approvalStatusMap: parseStatusMap<ApprovalStatus>(loaded.AUTH_APPROVAL_STATUS_MAP_JSON || ''),
     authRoleColumnId: loaded.AUTH_ROLE_COLUMN_ID || 'color_mm16fjq9',

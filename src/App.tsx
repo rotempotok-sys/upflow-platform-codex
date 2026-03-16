@@ -97,9 +97,9 @@ function formatSyncTime(value: string | null) {
 }
 
 function CalendarConnectBanner() {
-  const { needsInteractiveAuth, isReady, accessToken, requestToken } = useGoogleCalendarAuth()
+  const { needsReauth, isReady, accessToken } = useGoogleCalendarAuth()
 
-  if (!needsInteractiveAuth || !isReady || accessToken) return null
+  if (!needsReauth || !isReady || accessToken) return null
 
   return (
     <div
@@ -114,10 +114,10 @@ function CalendarConnectBanner() {
         fontSize: '0.9rem',
       }}
     >
-      <span>נדרש חיבור ל-Google Calendar לתפקוד מלא</span>
+      <span>נדרש חיבור מחדש ל-Google Calendar</span>
       <button
         type="button"
-        onClick={() => requestToken('')}
+        onClick={() => { window.location.href = '/api/auth/google/start?prompt=consent' }}
         style={{
           background: '#fff',
           color: '#1a73e8',
@@ -222,6 +222,44 @@ function App() {
     let isMounted = true
 
     const bootstrapAuth = async () => {
+      // Handle OAuth redirect results (from /api/auth/google/callback)
+      const urlParams = new URLSearchParams(window.location.search)
+      const authError = urlParams.get('auth_error')
+      const authStateParam = urlParams.get('auth_state')
+
+      // Clean up URL query params after reading
+      if (authError || authStateParam) {
+        const cleanUrl = window.location.pathname
+        window.history.replaceState({}, '', cleanUrl)
+      }
+
+      if (authError) {
+        if (!isMounted) return
+        if (authError === 'blocked') {
+          setAuthState('blocked')
+          setAuthMessage('החשבון חסום')
+          return
+        }
+        if (authError === 'not_authorized') {
+          setAuthState('not_authorized')
+          setAuthMessage('אין הרשאת גישה')
+          return
+        }
+        if (authError === 'access_denied') {
+          setAuthState('unauthenticated')
+          setAuthMessage(null)
+          return
+        }
+        // For other errors (invalid_state, callback_failed etc.), show login screen
+        setAuthState('unauthenticated')
+        setAuthMessage(null)
+        return
+      }
+
+      if (authStateParam === 'pending') {
+        // OAuth callback succeeded but user is pending approval — still check /auth/me for full state
+      }
+
       try {
         console.log('BOOT /api/auth/me')
         const response = await fetch('/api/auth/me', { method: 'GET', cache: 'no-store' })

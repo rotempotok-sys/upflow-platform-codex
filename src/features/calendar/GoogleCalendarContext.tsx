@@ -1,149 +1,160 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
 
-const GOOGLE_CLIENT_ID =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || '586770624218-11h357fh8gj64plgglbdnk7bi14cqr9r.apps.googleusercontent.com'
-export const CALENDAR_TOKEN_STORAGE_KEY = 'upflow_calendar_token'
-export const CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY = 'upflow_calendar_token_expires_at'
-const SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
+/**
+ * Google Calendar auth context — unified OAuth2 flow.
+ *
+ * Access tokens are managed server-side. The frontend fetches fresh tokens
+ * from GET /api/auth/google/token (which uses stored refresh tokens in Supabase).
+ * No client-side Google Identity Script or localStorage tokens needed.
+ */
 
-// Refresh token 2 minutes before expiry
-const REFRESH_BUFFER_MS = 2 * 60 * 1000
+// Refresh 5 minutes before expiry
+const REFRESH_BUFFER_MS = 5 * 60 * 1000
+// Minimum refresh interval (30s)
+const MIN_REFRESH_MS = 30_000
 
-function loadGoogleIdentityScript() {
-  return new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-google-gsi="1"]')
-    if (existing) {
-      if ((window as any).google?.accounts?.oauth2) resolve()
-      else existing.addEventListener('load', () => resolve(), { once: true })
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.dataset.googleGsi = '1'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Google Identity script'))
-    document.head.appendChild(script)
-  })
-}
+// Legacy localStorage keys (cleaned up on first load)
+const LEGACY_KEYS = ['upflow_calendar_token', 'upflow_calendar_token_expires_at']
 
 interface GoogleCalendarContextValue {
   accessToken: string | null
   isReady: boolean
   error: string
-  /** True when silent auth failed and user interaction is needed */
-  needsInteractiveAuth: boolean
-  /** Request a new token (with user interaction if needed) */
-  requestToken: (prompt?: '' | 'none' | 'consent' | 'select_account') => void
+  /** True when server has no refresh token — user needs to re-authenticate with Google */
+  needsReauth: boolean
+  /** Force-refresh the access token from the backend */
+  fetchToken: () => Promise<string | null>
 }
 
 const GoogleCalendarContext = createContext<GoogleCalendarContextValue>({
   accessToken: null,
   isReady: false,
   error: '',
-  needsInteractiveAuth: false,
-  requestToken: () => {},
+  needsReauth: false,
+  fetchToken: async () => null,
 })
 
 export function useGoogleCalendarAuth() {
   return useContext(GoogleCalendarContext)
 }
 
+interface TokenApiResponse {
+  accessToken?: string
+  expiresAt?: string
+  error?: string
+}
+
 export function GoogleCalendarProvider({ children }: { children: ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [error, setError] = useState('')
-  const [needsInteractiveAuth, setNeedsInteractiveAuth] = useState(false)
-  const tokenClientRef = useRef<any>(null)
+  const [needsReauth, setNeedsReauth] = useState(false)
   const refreshTimerRef = useRef<number | null>(null)
+  const isFetchingRef = useRef(false)
 
-  const storeToken = useCallback((token: string, expiresIn: number) => {
-    const expiresAtMs = Date.now() + Math.max(expiresIn - 60, 30) * 1000
-    localStorage.setItem(CALENDAR_TOKEN_STORAGE_KEY, token)
-    localStorage.setItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY, String(expiresAtMs))
-    setAccessToken(token)
-    setError('')
-    setNeedsInteractiveAuth(false)
-
-    // Schedule silent refresh before expiry
-    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
-    const refreshIn = Math.max(expiresAtMs - Date.now() - REFRESH_BUFFER_MS, 30_000)
-    refreshTimerRef.current = window.setTimeout(() => {
-      tokenClientRef.current?.requestAccessToken({ prompt: 'none' })
-    }, refreshIn)
+  const clearRefreshTimer = useCallback(() => {
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current)
+      refreshTimerRef.current = null
+    }
   }, [])
 
-  const requestToken = useCallback((prompt?: '' | 'none' | 'consent' | 'select_account') => {
-    if (!tokenClientRef.current) return
-    tokenClientRef.current.requestAccessToken({ prompt: prompt ?? '' })
-  }, [])
+  const scheduleRefresh = useCallback(
+    (expiresAt: string, doFetch: () => Promise<string | null>) => {
+      clearRefreshTimer()
+      const expiresAtMs = new Date(expiresAt).getTime()
+      const refreshIn = Math.max(expiresAtMs - Date.now() - REFRESH_BUFFER_MS, MIN_REFRESH_MS)
 
-  useEffect(() => {
-    let canceled = false
+      refreshTimerRef.current = window.setTimeout(() => {
+        doFetch()
+      }, refreshIn)
+    },
+    [clearRefreshTimer],
+  )
 
-    async function init() {
-      try {
-        await loadGoogleIdentityScript()
-        if (canceled) return
+  const fetchToken = useCallback(async (): Promise<string | null> => {
+    // Prevent concurrent fetches
+    if (isFetchingRef.current) return accessToken
+    isFetchingRef.current = true
 
-        const googleClient = (window as any).google?.accounts?.oauth2
-        if (!googleClient) {
-          setError('Google Identity API not available')
-          return
-        }
+    try {
+      const response = await fetch('/api/auth/google/token', {
+        method: 'GET',
+        cache: 'no-store',
+      })
 
-        const client = googleClient.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: SCOPE,
-          callback: (response: any) => {
-            if (response.error || !response.access_token) {
-              const isSilent = response.error === 'interaction_required' || response.error === 'login_required'
-              if (isSilent) {
-                setNeedsInteractiveAuth(true)
-              } else {
-                setError('נכשל אימות מול Google Calendar')
-              }
-              return
-            }
-            storeToken(response.access_token, Number(response.expires_in ?? 0))
-          },
-        })
+      if (response.status === 401) {
+        // Session expired — user needs to log in again
+        setAccessToken(null)
+        setError('')
+        setNeedsReauth(false)
+        setIsReady(true)
+        return null
+      }
 
-        tokenClientRef.current = client
+      if (!response.ok) {
+        setError('שגיאה בקבלת Google token')
+        setIsReady(true)
+        return null
+      }
+
+      const data = (await response.json()) as TokenApiResponse
+
+      if (data.error === 'NO_GOOGLE_TOKEN') {
+        // No refresh token in Supabase — user revoked access or never granted calendar scope
+        setAccessToken(null)
+        setNeedsReauth(true)
+        setError('')
+        setIsReady(true)
+        return null
+      }
+
+      if (data.accessToken && data.expiresAt) {
+        setAccessToken(data.accessToken)
+        setError('')
+        setNeedsReauth(false)
         setIsReady(true)
 
-        // Check for existing valid token in localStorage
-        const storedToken = localStorage.getItem(CALENDAR_TOKEN_STORAGE_KEY)
-        const storedExpiry = Number(localStorage.getItem(CALENDAR_TOKEN_EXPIRES_AT_STORAGE_KEY) ?? '0')
-        const hasValid = Boolean(storedToken && Number.isFinite(storedExpiry) && storedExpiry > Date.now())
+        // Schedule automatic refresh
+        scheduleRefresh(data.expiresAt, fetchToken)
 
-        if (hasValid && storedToken) {
-          setAccessToken(storedToken)
-          // Schedule refresh for existing token
-          const refreshIn = Math.max(storedExpiry - Date.now() - REFRESH_BUFFER_MS, 30_000)
-          refreshTimerRef.current = window.setTimeout(() => {
-            client.requestAccessToken({ prompt: 'none' })
-          }, refreshIn)
-        } else {
-          // Attempt silent auth
-          client.requestAccessToken({ prompt: 'none' })
-        }
+        return data.accessToken
+      }
+
+      setError('תשובה לא צפויה משרת Google token')
+      setIsReady(true)
+      return null
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'שגיאה בחיבור לשרת')
+      setIsReady(true)
+      return null
+    } finally {
+      isFetchingRef.current = false
+    }
+  }, [accessToken, scheduleRefresh])
+
+  // Initial fetch on mount
+  useEffect(() => {
+    // Clean up legacy localStorage tokens
+    for (const key of LEGACY_KEYS) {
+      try {
+        localStorage.removeItem(key)
       } catch {
-        if (!canceled) setError('לא ניתן לטעון את Google Identity')
+        // Ignore
       }
     }
 
-    init()
+    // Fetch initial token from backend
+    fetchToken()
+
     return () => {
-      canceled = true
-      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current)
+      clearRefreshTimer()
     }
-  }, [storeToken])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
-    <GoogleCalendarContext.Provider value={{ accessToken, isReady, error, needsInteractiveAuth, requestToken }}>
+    <GoogleCalendarContext.Provider value={{ accessToken, isReady, error, needsReauth, fetchToken }}>
       {children}
     </GoogleCalendarContext.Provider>
   )
