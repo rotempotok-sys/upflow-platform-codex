@@ -7,7 +7,9 @@ It does not define one-off implementation plans.
 ## Product Context (Current State)
 - Frontend: React + TypeScript (`src/*`)
 - API layer: Vite middleware in `vite.config.ts`
-- Auth/Authz: implemented in `server/auth/*` using Monday-backed identity + scoped permissions
+- Auth/Authz: implemented in `server/auth/*` using Google OAuth2 Authorization Code Flow + Monday-backed role/permissions
+- Google OAuth: unified login — single sign-in grants profile + calendar access; refresh tokens stored in Supabase (`google_oauth_tokens`)
+- Calendar: dual access model — users with OAuth tokens use Google Calendar API directly; technicians without calendar access use backend Service Account endpoint (`/api/calendar/my-events`)
 - Live snapshot today: clients + equipment (`/api/runtime-db/snapshot`)
 - Team and calendar flows are partially legacy/mock and must be migrated incrementally
 - A Supabase account and project have been created.
@@ -24,6 +26,7 @@ It does not define one-off implementation plans.
 6. Fail closed on missing/ambiguous identity, scope, mappings, or joins.
 7. Do not rely on free-text parsing as the primary linkage mechanism.
 8. Keep changes modular and incremental; avoid full redesigns.
+9. Google OAuth tokens (refresh/access) are managed server-side only; never store OAuth tokens in localStorage or client-side state.
 
 ## Authoritative Sources by Layer
 - Operational truth (source systems): Monday boards
@@ -50,6 +53,79 @@ It does not define one-off implementation plans.
 4. Migrate one UI surface.
 5. Add exception handling and observability.
 
+## Monday.com MCP — כלים זמינים לאינטגרציה (`@mondaydotcomorg/monday-api-mcp@latest`)
+
+### קריאה (חופשי — ללא אישור)
+| Tool | שימוש באפליקציה |
+|------|------------------|
+| `get_board_info` | סכמת בורד + עמודות — בסיס ל-sync mappings |
+| `get_board_schema` | סכמה מלאה — לוידוא column IDs לפני כתיבה |
+| `get_board_items_page` | שליפת פריטים עם פילטרים — runtime sync |
+| `get_full_board_data` | כל נתוני הבורד — snapshot/bulk sync |
+| `get_board_activity` | לוג פעילות — audit trail |
+| `board_insights` | אנליטיקה — control room dashboards |
+| `get_column_type_info` | סוגי עמודות — mapping validation |
+| `search` | חיפוש בורדים/מסמכים |
+| `get_updates` | עדכונים על פריט — comments/history |
+| `list_users_and_teams` | משתמשים — auth/identity mapping |
+| `get_user_context` | משתמש נוכחי |
+| `fetch_custom_activity` | פעילות מותאמת |
+
+### כתיבה (לאשר עם רותם לפני ביצוע)
+| Tool | שימוש באפליקציה |
+|------|------------------|
+| `create_item` | יצירת פריט — writeback מהאפליקציה ל-Monday |
+| `change_item_column_values` | עדכון ערכי עמודות — status sync |
+| `move_item_to_group` | העברה בין קבוצות — workflow transitions |
+| `create_update` / `create_update_in_monday` | הוספת עדכונים עם mentions |
+| `create_notification` | שליחת התראות למשתמשים |
+| `create_timeline_item` | פריטי טיימליין |
+| `update_assets_on_item` | קבצים מצורפים |
+| `delete_item` / `delete_column` | מחיקה — זהירות מרבית |
+
+### Dynamic GraphQL API (מתקדם)
+| Tool | שימוש |
+|------|--------|
+| `all_monday_api` | GraphQL queries/mutations ישירות — לפעולות שאין להן tool ייעודי |
+| `get_graphql_schema` | חקירת API — read/write operations |
+| `get_type_details` | פרטי טיפוסים — לבניית queries מדויקות |
+
+> **כלל חובה:** תמיד קרא `get_board_info` לפני `change_item_column_values` — לוודא column IDs.
+> **כלל חובה:** תמיד קרא `get_graphql_schema` + `get_type_details` לפני `all_monday_api`.
+> **Mirror columns — קריאה בלבד.** עדכון דרך בורד המקור בלבד.
+
+## Google OAuth Architecture
+
+### Flow
+1. User clicks "התחבר עם Google" → `GET /api/auth/google/start` → redirect to Google
+2. Google returns authorization code → `GET /api/auth/google/callback`
+3. Server exchanges code for tokens (access + refresh + id_token)
+4. Server verifies identity, checks Monday-based authorization, creates session
+5. Refresh token saved to Supabase `google_oauth_tokens` table (service_role only, RLS enabled)
+6. Access token refreshed server-side automatically when needed
+
+### Key Files
+| File | Purpose |
+|---|---|
+| `server/auth/googleOAuth.ts` | OAuth2 utilities: auth URL, code exchange, token refresh, JWT decode |
+| `server/auth/tokenStore.ts` | Supabase CRUD for refresh/access tokens with auto-refresh |
+| `server/auth/routes.ts` | OAuth routes: `/start`, `/callback`, `/token`, `/logout` |
+| `src/features/auth/LoginScreen.tsx` | Login button (redirect, no GIS/client-side OAuth) |
+| `src/features/calendar/GoogleCalendarContext.tsx` | Fetches access token from backend, auto-refresh timer |
+
+### Prompt Strategy
+- First-time user (no stored refresh token): `prompt=consent` — full consent screen, Google returns refresh_token
+- Returning user (has refresh token): `prompt=select_account` — fast re-login, no consent screen
+- Explicit re-auth (`?prompt=consent`): forces full consent (used by CalendarConnectBanner)
+
+### Scopes
+`openid email profile https://www.googleapis.com/auth/calendar`
+
+Extensible — add Drive scope here when needed.
+
+### Technician Calendar Access
+Technicians who don't have direct calendar access can view their relevant events via `GET /api/calendar/my-events`, which uses the Google Service Account (`GOOGLE_SERVICE_ACCOUNT_JSON`) to fetch events from the shared operations calendar and filter by technician.
+
 ## Blocker Policy
 If blocked after 1-2 implementation iterations (schema mismatch, integration ambiguity, platform constraints), consult external references (official docs/vendor APIs) before continuing.
 Record what was checked and what decision was taken.
@@ -68,9 +144,15 @@ Record what was checked and what decision was taken.
   - `SUPABASE_URL`
   - `SUPABASE_PROJECT_REF`
   - `SUPABASE_SERVICE_ROLE_KEY`
+  - `GOOGLE_CLIENT_SECRET`
+  - `GOOGLE_SERVICE_ACCOUNT_JSON`
+  - `OPENROUTER_API_KEY`
+  - `MONDAY_API_TOKEN`
 - If any required secret is missing, stop and report only the missing variable name.
 - Do not modify `.env`, `.env.local`, `.env.production`, or secret-bearing config files unless explicitly instructed.
 - Do not expose `SUPABASE_SERVICE_ROLE_KEY` to client-side code under any circumstance.
+- Do not expose `GOOGLE_CLIENT_SECRET` or `GOOGLE_SERVICE_ACCOUNT_JSON` to client-side code under any circumstance.
+- OAuth refresh tokens must never be sent to the client; only short-lived access tokens via `/api/auth/google/token`.
 - Any Supabase write operation must be server-side only.
 - Prefer read-only access for MCP and diagnostics unless a task explicitly requires writes.
 - Before any schema or data-changing operation, explain the intended change briefly and keep scope minimal.
