@@ -1361,3 +1361,20 @@ body::before {
 
 
 
+
+.operation-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 9, 18, 0.7);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 9990;
+  padding: 1rem;
+}
+
+.operation-modal {
+  width: min(900px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+}

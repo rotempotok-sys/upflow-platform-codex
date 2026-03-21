@@ -1,20 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
-
-interface LoginResponseApproved {
-  authState: 'approved'
-}
-
-interface LoginResponsePending {
-  authState: 'pending'
-}
-
-interface LoginErrorResponse {
-  error?: {
-    code?: string
-    message?: string
-    authState?: 'blocked' | 'not_authorized'
-  }
-}
+import { useState } from 'react'
 
 export type LoginOutcome =
   | { type: 'approved' }
@@ -27,143 +11,67 @@ interface LoginScreenProps {
   onOutcome: (outcome: LoginOutcome) => void
 }
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() || ''
-
-function loadGoogleIdentityScript() {
-  return new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>('script[data-google-gsi="1"]')
-    if (existing) {
-      if (window.google?.accounts?.id) resolve()
-      else existing.addEventListener('load', () => resolve(), { once: true })
-      return
-    }
-
-    const script = document.createElement('script')
-    script.src = 'https://accounts.google.com/gsi/client'
-    script.async = true
-    script.defer = true
-    script.dataset.googleGsi = '1'
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Failed to load Google Identity script'))
-    document.head.appendChild(script)
-  })
-}
-
+/**
+ * Login screen — redirects to Google OAuth2 Authorization Code flow.
+ *
+ * The actual authentication happens server-side at /api/auth/google/start → Google → /api/auth/google/callback.
+ * On success, the callback sets the session cookie and redirects to /.
+ * On failure, it redirects to /?auth_error=<code>.
+ */
 export function LoginScreen({ onOutcome }: LoginScreenProps) {
-  const buttonRef = useRef<HTMLDivElement | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [isRedirecting, setIsRedirecting] = useState(false)
 
-  useEffect(() => {
-    let canceled = false
-
-    const setup = async () => {
-      if (!GOOGLE_CLIENT_ID) {
-        setError('Google Client ID חסר בקונפיגורציה (VITE_GOOGLE_CLIENT_ID).')
-        setIsLoading(false)
-        return
-      }
-
-      try {
-        await loadGoogleIdentityScript()
-        if (canceled) return
-
-        const googleId = window.google?.accounts?.id
-        if (!googleId || !buttonRef.current) {
-          throw new Error('Google Sign-In API not available')
-        }
-
-        googleId.initialize({
-          client_id: GOOGLE_CLIENT_ID,
-          callback: async (response) => {
-            const credential = String(response.credential ?? '').trim()
-            if (!credential) {
-              onOutcome({ type: 'error', message: 'לא התקבל Google ID token' })
-              return
-            }
-
-            try {
-              const res = await fetch('/api/auth/google/login', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ idToken: credential }),
-              })
-
-              const payload = (await res.json()) as (LoginResponseApproved | LoginResponsePending | LoginErrorResponse)
-
-              if (res.ok && (payload as { authState?: string }).authState === 'approved') {
-                onOutcome({ type: 'approved' })
-                return
-              }
-
-              if (res.ok && (payload as { authState?: string }).authState === 'pending') {
-                onOutcome({ type: 'pending' })
-                return
-              }
-
-              const errorPayload = payload as LoginErrorResponse
-              const code = errorPayload.error?.code || 'AUTH_LOGIN_FAILED'
-              const message = errorPayload.error?.message || 'Authentication failed'
-              const authState = errorPayload.error?.authState
-
-              if (code === 'AUTH_BLOCKED' || authState === 'blocked') {
-                onOutcome({ type: 'blocked', message })
-                return
-              }
-
-              if (code === 'AUTH_NOT_ELIGIBLE' || authState === 'not_authorized') {
-                onOutcome({ type: 'not_authorized', message })
-                return
-              }
-
-              onOutcome({ type: 'error', message })
-            } catch (requestError) {
-              onOutcome({
-                type: 'error',
-                message: requestError instanceof Error ? requestError.message : 'Authentication request failed',
-              })
-            }
-          },
-          ux_mode: 'popup',
-          auto_select: false,
-        })
-
-        googleId.renderButton(buttonRef.current, {
-          type: 'standard',
-          theme: 'outline',
-          size: 'large',
-          text: 'signin_with',
-          shape: 'rectangular',
-          width: 280,
-        })
-
-        setError('')
-      } catch (setupError) {
-        setError(setupError instanceof Error ? setupError.message : 'Google Sign-In setup failed')
-      } finally {
-        if (!canceled) setIsLoading(false)
-      }
-    }
-
-    void setup()
-
-    return () => {
-      canceled = true
-    }
-  }, [onOutcome])
+  const handleLogin = () => {
+    setIsRedirecting(true)
+    // Redirect to server-side OAuth start endpoint
+    window.location.href = '/api/auth/google/start'
+  }
 
   return (
     <main className="app-shell" dir="rtl">
       <section className="panel" style={{ maxWidth: 560, margin: '12vh auto', padding: '2rem' }}>
         <h1>התחברות ל-Upflow Platform</h1>
         <p>הגישה מיועדת לעובדים שמוגדרים בלוח ההרשאות של Monday.</p>
-        <div ref={buttonRef} style={{ minHeight: 44, marginTop: '1rem' }} />
-        {isLoading ? <p>טוען Google Sign-In...</p> : null}
-        {error ? <p className="calendar-error">{error}</p> : null}
+
+        <button
+          onClick={handleLogin}
+          disabled={isRedirecting}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            width: 280,
+            height: 44,
+            marginTop: '1rem',
+            padding: '0 1rem',
+            border: '1px solid #dadce0',
+            borderRadius: 4,
+            backgroundColor: '#fff',
+            color: '#3c4043',
+            fontSize: '14px',
+            fontFamily: "'Google Sans', Roboto, Arial, sans-serif",
+            fontWeight: 500,
+            cursor: isRedirecting ? 'wait' : 'pointer',
+            opacity: isRedirecting ? 0.7 : 1,
+            transition: 'background-color 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            if (!isRedirecting) e.currentTarget.style.backgroundColor = '#f7f8f8'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#fff'
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          {isRedirecting ? 'מעביר ל-Google...' : 'התחבר עם Google'}
+        </button>
       </section>
     </main>
   )
 }
-

@@ -66,7 +66,7 @@ Defined in `package.json`:
 ## Environment Variables
 ### Required for core runtime
 - `MONDAY_API_TOKEN`  
-  Required by `/api/monday/snapshot` and Monday pull script.
+  Required by Monday pull script and `/api/runtime-db/sync/monday-snapshot`.
 
 - `OPENROUTER_API_KEY`  
   Required by `/api/ai/chat`.
@@ -95,12 +95,12 @@ Defined in `package.json`:
 
 ### API layer
 There is no separate server folder. API endpoints are implemented as Vite middleware in `vite.config.ts`:
-- `GET /api/monday/snapshot`
+- `GET /api/runtime-db/snapshot`
 - `POST /api/ai/memory`
 - `POST /api/ai/chat`
 
 ### Runtime flow (current implementation)
-1. App loads and calls `/api/monday/snapshot`.
+1. App loads and calls `/api/runtime-db/snapshot`.
 2. Snapshot polling continues every 5 minutes.
 3. If snapshot fails, app continues using local fallback data.
 4. AI page sends question + generated context to `/api/ai/chat`.
